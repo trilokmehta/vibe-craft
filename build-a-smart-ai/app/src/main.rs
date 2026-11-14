@@ -6,6 +6,8 @@ mod stemctl;
 mod stems;
 mod tracks;
 mod ui;
+mod logo;
+mod update;
 
 use app::{App, Armed};
 use engine::{Mixer, Style};
@@ -15,7 +17,7 @@ use std::sync::{Arc, Mutex};
 use tracks::{build_demo, SR};
 
 fn conf() -> Conf {
-    Conf { window_title: "Smart AI DJ".to_string(), window_width: 1280, window_height: 760, high_dpi: false, ..Default::default() }
+    Conf { window_title: "Vibe Craft".to_string(), window_width: 1280, window_height: 760, high_dpi: false, icon: Some(icon()), ..Default::default() }
 }
 
 fn list_outputs() -> Vec<String> {
@@ -124,7 +126,7 @@ fn start_audio(mixer: Arc<Mutex<Mixer>>, want: Option<&str>, dj: bool) -> Option
 #[cfg(windows)]
 fn send_to_back() {
     use windows_sys::Win32::UI::WindowsAndMessaging::{FindWindowW, SetWindowPos};
-    let title: Vec<u16> = "Smart AI DJ\0".encode_utf16().collect();
+    let title: Vec<u16> = "Vibe Craft\0".encode_utf16().collect();
     unsafe {
         let hwnd = FindWindowW(std::ptr::null(), title.as_ptr());
         if hwnd != 0 {
@@ -491,9 +493,13 @@ async fn main() {
     }
 
     let mut app = App::new(lib.clone(), mixer.clone(), !headless);
+    let lg = logo::render(64);
+    app.logo = Some(Texture2D::from_rgba8(64, 64, &lg));
     if !headless {
         app.out_devices = list_outputs();
         app.out_name = out_name;
+        update::cleanup();
+        app.upd = Some(update::check());
     }
     let mut dev_poll = 0.0f32;
     if !headless && tracks::CHOSEN_DIR.lock().unwrap().is_some() {
@@ -941,4 +947,12 @@ async fn main() {
         }
         next_frame().await;
     }
+}
+
+fn icon() -> miniquad::conf::Icon {
+    let mut ic = miniquad::conf::Icon { small: [0; 16 * 16 * 4], medium: [0; 32 * 32 * 4], big: [0; 64 * 64 * 4] };
+    ic.small.copy_from_slice(&logo::render(16));
+    ic.medium.copy_from_slice(&logo::render(32));
+    ic.big.copy_from_slice(&logo::render(64));
+    ic
 }

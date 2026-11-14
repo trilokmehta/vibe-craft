@@ -380,11 +380,52 @@ impl App {
         let t = &lib[self.current];
         let accent = self.acc;
         draw_rectangle(0.0, 0.0, w, HDR, Color::new(0.04, 0.04, 0.06, 1.0));
-        draw_circle(34.0, 30.0, 8.0, accent);
-        draw_circle_lines(34.0, 30.0, 13.0, 2.0, Color::new(accent.r, accent.g, accent.b, 0.6));
         let narrow = w < 760.0;
+        if let Some(tex) = &self.logo {
+            // Soft glow that breathes with the music clock.
+            let pulse = 0.5 + 0.5 * (self.time * 2.4).sin();
+            draw_circle(34.0, 30.0, 21.0 + 2.0 * pulse, Color::new(0.93, 0.28, 0.60, 0.10 + 0.08 * pulse));
+            draw_texture_ex(tex, 16.0, 12.0, WHITE, DrawTextureParams { dest_size: Some(vec2(36.0, 36.0)), ..Default::default() });
+        }
         if !narrow {
-            draw_text("SMART DJ", 58.0, 38.0, 26.0, WHITE);
+            draw_text("VIBE CRAFT", 62.0, 38.0, 26.0, WHITE);
+        }
+        if self.loader.is_none() {
+            if let Some(st) = self.upd.clone() {
+                let s = st.lock().unwrap().clone();
+                let bx = if narrow { 60.0 } else { 220.0 };
+                use crate::update::State;
+                match s {
+                    State::Available { tag, .. } => {
+                        let label = format!("Update to {}", tag);
+                        let bw = tw(&label, 18.0) + 30.0;
+                        if self.button(bx, 14.0, bw, 32.0, &label, true, Color::new(0.13, 0.83, 0.93, 1.0)) {
+                            crate::update::install(&st);
+                        }
+                    }
+                    State::Downloading { pct, .. } => {
+                        let msg = format!("Updating... {:.0}%", pct * 100.0);
+                        let wd = tw(&msg, 17.0) + 24.0;
+                        rrect(bx, 17.0, wd, 26.0, 13.0, Color::new(0.13, 0.83, 0.93, 0.2));
+                        rrect(bx, 17.0, wd * pct.clamp(0.0, 1.0), 26.0, 13.0, Color::new(0.13, 0.83, 0.93, 0.35));
+                        draw_text(&msg, bx + 12.0, 35.0, 17.0, WHITE);
+                    }
+                    State::Ready { tag } => {
+                        let label = format!("Restart for {}", tag);
+                        let bw = tw(&label, 18.0) + 30.0;
+                        if self.button(bx, 14.0, bw, 32.0, &label, true, Color::new(0.3, 1.0, 0.6, 1.0)) {
+                            crate::update::restart();
+                        }
+                    }
+                    State::Failed(e) => {
+                        // Only show download/install failures; a failed check stays quiet.
+                        if e.starts_with("install:") {
+                            draw_text(&e, bx, 35.0, 16.0, Color::new(1.0, 0.5, 0.5, 0.9));
+                        }
+                    }
+                    _ => {}
+                }
+            }
         }
         if let Some(l) = &self.loader {
             let (d, f) = {
@@ -393,7 +434,7 @@ impl App {
             };
             let msg = if f > 0 { format!("Scanning music {}/{}", d, f) } else { "Scanning music...".to_string() };
             let wd = tw(&msg, 17.0) + 34.0;
-            let bx = if narrow { 52.0 } else { 200.0 };
+            let bx = if narrow { 60.0 } else { 220.0 };
             rrect(bx, 17.0, wd, 26.0, 13.0, Color::new(accent.r, accent.g, accent.b, 0.2));
             let pulse = 0.5 + 0.5 * (self.time * 5.0).sin();
             draw_circle(bx + 14.0, 30.0, 4.0, Color::new(accent.r, accent.g, accent.b, 0.4 + 0.6 * pulse));
