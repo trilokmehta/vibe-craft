@@ -8,6 +8,7 @@ mod tracks;
 mod ui;
 mod logo;
 mod update;
+mod sep;
 
 use app::{App, Armed};
 use engine::{Mixer, Style};
@@ -170,6 +171,16 @@ async fn main() {
         if tracks::CHOSEN_DIR.lock().unwrap().is_none() {
             if let Some(p) = tracks::find_default_music() {
                 *tracks::CHOSEN_DIR.lock().unwrap() = Some(p);
+            }
+        }
+    }
+    if let Some(song) = arg("--sep-test") {
+        let out = args.iter().position(|a| a == "--sep-test").and_then(|i| args.get(i + 2).cloned()).unwrap_or_else(|| "sep_test".to_string());
+        match sep::self_test(std::path::Path::new(&song), std::path::Path::new(&out)) {
+            Ok(()) => std::process::exit(0),
+            Err(e) => {
+                eprintln!("sep-test failed: {}", e);
+                std::process::exit(1);
             }
         }
     }
@@ -499,6 +510,7 @@ async fn main() {
         app.out_devices = list_outputs();
         app.out_name = out_name;
         update::cleanup();
+        sep::ensure_model();
         app.upd = Some(update::check());
     }
     let mut dev_poll = 0.0f32;

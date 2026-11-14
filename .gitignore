@@ -13,3 +13,7 @@ build-a-smart-ai/app/music/
 # Local logs / session data
 build-a-smart-ai/agent-session.jsonl
 *.log
+
+# Local test output
+update-test/
+build-a-smart-ai/app/sep_test/

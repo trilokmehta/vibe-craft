@@ -7,10 +7,13 @@ use std::f32::consts::PI;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
-pub const NAMES: [&str; 4] = ["Vocals", "Music", "Bass", "Drums"];
+pub const NL: usize = 5;
+pub const NAMES: [&str; NL] = ["Vocals", "Music", "Bass", "Drums", "Melody"];
 
 pub struct Stems {
-    pub data: [Arc<Vec<f32>>; 4],
+    pub data: [Arc<Vec<f32>>; NL],
+    /// True when made by the AI model (has a real Melody layer).
+    pub ai: bool,
 }
 
 struct Fft {
@@ -198,5 +201,5 @@ pub fn separate(pcm: &[f32], progress: &AtomicU32) -> Stems {
     let norm = 1.0 / 1.5;
     let mk = |v: &Vec<f32>| -> Arc<Vec<f32>> { Arc::new(v[N..N + len].iter().map(|x| x * norm).collect()) };
     progress.store(100, Ordering::Relaxed);
-    Stems { data: [mk(&out[0]), mk(&out[1]), mk(&out[2]), mk(&out[3])] }
+    Stems { data: [mk(&out[0]), mk(&out[1]), mk(&out[2]), mk(&out[3]), Arc::new(vec![0.0; len])], ai: false }
 }

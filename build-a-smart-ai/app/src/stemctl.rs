@@ -59,10 +59,24 @@ impl App {
                     continue;
                 }
                 let job = Arc::new(StemJob { pct: AtomicU32::new(0), done: AtomicBool::new(false), result: Mutex::new(None) });
+                let path = self.lib[tid].path.clone();
+                // Wait for the AI model while it downloads; songs without a file (demo) use DSP.
+                if path.is_some() && matches!(crate::sep::model_state(), crate::sep::ModelState::Downloading(_)) {
+                    break;
+                }
                 let pcm = self.lib[tid].audio();
                 let j2 = job.clone();
                 std::thread::spawn(move || {
-                    let s = crate::stems::separate(&pcm, &j2.pct);
+                    let ai = path.as_ref().map(|p| crate::sep::separate_file(p, &pcm, &j2.pct));
+                    let s = match ai {
+                        Some(Ok(s)) => s,
+                        other => {
+                            if let Some(Err(e)) = other {
+                                eprintln!("sep: AI separation unavailable ({}), using DSP", e);
+                            }
+                            crate::stems::separate(&pcm, &j2.pct)
+                        }
+                    };
                     *j2.result.lock().unwrap() = Some(Arc::new(s));
                     j2.done.store(true, Ordering::SeqCst);
                 });
@@ -97,13 +111,15 @@ impl App {
             draw_text(&fit(&label, 18.0, w - 32.0), x + 16.0, yy, 18.0, WHITE);
             if self.snap.stems[d] {
                 // Rotary knobs: drag around the dial (or click) to set the level.
-                let cell = (w - 32.0) / 4.0;
+                let ai = mixer.lock().unwrap().decks[d].stems.as_ref().map(|s| s.ai).unwrap_or(false);
+                let order: &[usize] = if ai { &[0, 4, 1, 2, 3] } else { &[0, 1, 2, 3] };
+                let cell = (w - 32.0) / order.len() as f32;
                 let r = 20.0f32;
                 let kc = yy + 12.0 + r + 8.0;
                 let sweep = 2.356f32; // +-135 degrees
-                for k in 0..4 {
+                for (slot, &k) in order.iter().enumerate() {
                     let v = (self.snap.sg[d][k] / 1.5).clamp(0.0, 1.0);
-                    let cx = x + 16.0 + cell * (k as f32 + 0.5);
+                    let cx = x + 16.0 + cell * (slot as f32 + 0.5);
                     let hv = self.hov(cx - r - 10.0, kc - r - 10.0, 2.0 * r + 20.0, 2.0 * r + 20.0);
                     let mut nv = v;
                     if hv && self.down {
@@ -133,7 +149,7 @@ impl App {
                 }
                 let ky = kc + r + 34.0;
                 let bw = (w - 32.0 - 12.0) / 3.0;
-                let presets: [(&str, [f32; 4]); 3] = [("Instrumental", [0.0, 1.0, 1.0, 1.0]), ("Acapella", [1.0, 0.0, 0.0, 0.0]), ("Reset", [1.0; 4])];
+                let presets: [(&str, [f32; crate::stems::NL]); 3] = [("Instrumental", [0.0, 1.0, 1.0, 1.0, 1.0]), ("Acapella", [1.0, 0.0, 0.0, 0.0, 0.0]), ("Reset", [1.0; crate::stems::NL])];
                 for (pi, (name, vals)) in presets.iter().enumerate() {
                     if self.button(x + 16.0 + pi as f32 * (bw + 6.0), ky - 6.0, bw, 24.0, name, false, accent) {
                         mixer.lock().unwrap().decks[d].sg = *vals;
@@ -146,8 +162,10 @@ impl App {
                 };
                 let msg = if !self.use_stems {
                     "Layers are off".to_string()
+                } else if let crate::sep::ModelState::Downloading(f) = crate::sep::model_state() {
+                    format!("Downloading AI layer model... {:.0}%", f * 100.0)
                 } else if let Some(p) = pct {
-                    format!("Separating layers... {}%", p)
+                    format!("Separating layers with AI... {}%", p)
                 } else {
                     "Waiting to separate layers".to_string()
                 };

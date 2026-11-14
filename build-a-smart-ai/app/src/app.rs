@@ -55,7 +55,7 @@ pub struct Snap {
     pub loop_on: [bool; 2],
     pub scope: Vec<f32>,
     pub stems: [bool; 2],
-    pub sg: [[f32; 4]; 2],
+    pub sg: [[f32; crate::stems::NL]; 2],
     pub sr: f32,
     pub completed: u32,
 }
@@ -444,7 +444,7 @@ impl App {
             d.cues = [None; 4];
             d.ease = false;
             d.stems = None;
-            d.sg = [1.0; 4];
+            d.sg = [1.0; crate::stems::NL];
             m.pending = Some(Pending { deck_in: inn, trigger, start_pos: in_pos, in_rate, dur_secs: dur, style, out_bpm_eff: out_eff });
         }
         let why = if intro_quiet >= 2.0 { format!("{}; {} has a {:.0} s quiet intro", why, tin.title, intro_quiet) } else { why };

@@ -1,7 +1,7 @@
 //! Audio playback + mixing engine: two decks with tempo (rate) control,
 //! 3-band EQ, filter, echo bus, crossfader, and a sample-accurate transition
 //! scheduler. Rendering is device independent so it can also run offline.
-use crate::stems::Stems;
+use crate::stems::{Stems, NL};
 use crate::tracks::SR;
 use std::f32::consts::PI;
 use std::sync::Arc;
@@ -56,12 +56,12 @@ pub struct TP {
     pub high: f32,
     pub filt: f32,
     pub echo: f32,
-    pub stem: [f32; 4],
+    pub stem: [f32; NL],
 }
 
 impl TP {
     pub fn neutral() -> TP {
-        TP { gain: 1.0, low: 1.0, mid: 1.0, high: 1.0, filt: 1.0, echo: 0.0, stem: [1.0; 4] }
+        TP { gain: 1.0, low: 1.0, mid: 1.0, high: 1.0, filt: 1.0, echo: 0.0, stem: [1.0; NL] }
     }
 }
 
@@ -84,8 +84,8 @@ pub fn trans_params(style: Style, x: f32) -> (TP, TP) {
             i.low = sm(0.42, 0.56, x);
             i.mid = 0.3 + 0.7 * sm(0.1, 0.6, x);
             i.high = 0.4 + 0.6 * sm(0.0, 0.5, x);
-            o.stem = [1.0 - sm(0.12, 0.38, x), 1.0 - 0.5 * sm(0.45, 1.0, x), 1.0 - sm(0.42, 0.56, x), 1.0 - sm(0.5, 0.95, x)];
-            i.stem = [sm(0.62, 0.9, x), sm(0.1, 0.55, x), sm(0.42, 0.56, x), sm(0.0, 0.3, x)];
+            o.stem = [1.0 - sm(0.12, 0.38, x), 1.0 - 0.5 * sm(0.45, 1.0, x), 1.0 - sm(0.42, 0.56, x), 1.0 - sm(0.5, 0.95, x), 1.0 - 0.5 * sm(0.45, 1.0, x)];
+            i.stem = [sm(0.62, 0.9, x), sm(0.1, 0.55, x), sm(0.42, 0.56, x), sm(0.0, 0.3, x), sm(0.1, 0.55, x)];
         }
         Style::FilterEcho => {
             o.gain = (sm(0.8, 1.0, x) * PI / 2.0).cos();
@@ -94,15 +94,15 @@ pub fn trans_params(style: Style, x: f32) -> (TP, TP) {
             i.gain = (sm(0.4, 0.85, x) * PI / 2.0).sin();
             i.low = sm(0.5, 0.7, x);
             i.filt = 0.25 + 0.75 * sm(0.4, 1.0, x);
-            o.stem = [1.0 - sm(0.1, 0.35, x), 1.0, 1.0 - sm(0.4, 0.7, x), 1.0];
-            i.stem = [sm(0.65, 0.95, x), 1.0, sm(0.5, 0.7, x), sm(0.0, 0.3, x)];
+            o.stem = [1.0 - sm(0.1, 0.35, x), 1.0, 1.0 - sm(0.4, 0.7, x), 1.0, 1.0];
+            i.stem = [sm(0.65, 0.95, x), 1.0, sm(0.5, 0.7, x), sm(0.0, 0.3, x), 1.0];
         }
         Style::EchoOut => {
             o.gain = (sm(0.3, 0.42, x) * PI / 2.0).cos();
             o.echo = 0.9 * sm(0.05, 0.3, x);
             o.filt = 1.0 - 0.5 * sm(0.1, 0.4, x);
             i.gain = if x < 0.45 { 0.0 } else { sm(0.45, 0.5, x) };
-            o.stem = [1.0 - sm(0.05, 0.3, x), 1.0, 1.0, 1.0];
+            o.stem = [1.0 - sm(0.05, 0.3, x), 1.0, 1.0, 1.0, 1.0];
         }
         Style::Plain => {
             o.gain = (x * PI / 2.0).cos();
@@ -122,8 +122,8 @@ pub fn trans_params(style: Style, x: f32) -> (TP, TP) {
             i.high = 0.75 + 0.25 * sm(0.0, 0.5, x);
             o.filt = 1.0 - 0.3 * sm(0.4, 1.0, x);
             // with layers: vocals leave early and enter late, drums never clash
-            o.stem = [1.0 - sm(0.12, 0.42, x), 1.0, 1.0 - sm(0.38, 0.58, x), 1.0 - sm(0.25, 0.55, x)];
-            i.stem = [sm(0.6, 0.9, x), 1.0, sm(0.38, 0.58, x), sm(0.45, 0.75, x)];
+            o.stem = [1.0 - sm(0.12, 0.42, x), 1.0, 1.0 - sm(0.38, 0.58, x), 1.0 - sm(0.25, 0.55, x), 1.0];
+            i.stem = [sm(0.6, 0.9, x), 1.0, sm(0.38, 0.58, x), sm(0.45, 0.75, x), 1.0];
         }
     }
     (o, i)
@@ -141,19 +141,23 @@ fn at(p: &[f32], i: isize) -> f32 {
     }
 }
 
-fn fr4(p: &[f32], st: Option<&Stems>, i: isize) -> [f32; 4] {
+fn fr4(p: &[f32], st: Option<&Stems>, i: isize) -> [f32; NL] {
     match st {
-        Some(s) => [at(&s.data[0], i), at(&s.data[1], i), at(&s.data[2], i), at(&s.data[3], i)],
-        None => [at(p, i), 0.0, 0.0, 0.0],
+        Some(s) => std::array::from_fn(|k| at(&s.data[k], i)),
+        None => {
+            let mut a = [0.0; NL];
+            a[0] = at(p, i);
+            a
+        }
     }
 }
 
-fn mul4(a: [f32; 4], w: f32) -> [f32; 4] {
-    [a[0] * w, a[1] * w, a[2] * w, a[3] * w]
+fn mul4(a: [f32; NL], w: f32) -> [f32; NL] {
+    a.map(|x| x * w)
 }
 
-fn add4(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
-    [a[0] + b[0], a[1] + b[1], a[2] + b[2], a[3] + b[3]]
+fn add4(a: [f32; NL], b: [f32; NL]) -> [f32; NL] {
+    std::array::from_fn(|k| a[k] + b[k])
 }
 
 /// Waveform-similarity overlap-add time stretcher (tempo change, pitch kept).
@@ -161,16 +165,16 @@ pub struct Stretch {
     apos: f64,
     prev_nat: isize,
     first: bool,
-    tail: Vec<[f32; 4]>,
+    tail: Vec<[f32; NL]>,
     win: Vec<f32>,
-    q: Vec<[f32; 4]>,
+    q: Vec<[f32; NL]>,
     qi: usize,
 }
 
 impl Stretch {
     fn new() -> Stretch {
         let win = (0..WN).map(|i| 0.5 - 0.5 * (2.0 * PI * i as f32 / WN as f32).cos()).collect();
-        Stretch { apos: 0.0, prev_nat: 0, first: true, tail: vec![[0.0; 4]; WH], win, q: Vec::new(), qi: 0 }
+        Stretch { apos: 0.0, prev_nat: 0, first: true, tail: vec![[0.0; NL]; WH], win, q: Vec::new(), qi: 0 }
     }
     fn reset(&mut self, pos: f64) {
         self.apos = pos;
@@ -178,7 +182,7 @@ impl Stretch {
         self.q.clear();
         self.qi = 0;
     }
-    fn next(&mut self, p: &[f32], st: Option<&Stems>, rate: f64) -> [f32; 4] {
+    fn next(&mut self, p: &[f32], st: Option<&Stems>, rate: f64) -> [f32; NL] {
         if self.qi >= self.q.len() {
             self.gen(p, st, rate);
         }
@@ -250,11 +254,11 @@ pub struct Deck {
     pub ease: bool,
     lp1: f32,
     st: Stretch,
-    s0: [f32; 4],
-    s1: [f32; 4],
+    s0: [f32; NL],
+    s1: [f32; NL],
     pub stems: Option<Arc<Stems>>,
-    pub sg: [f32; 4],
-    sgc: [f32; 4],
+    pub sg: [f32; NL],
+    sgc: [f32; NL],
     stems_on: bool,
     declick: u32,
     frac: f64,
@@ -295,7 +299,7 @@ impl Deck {
             return Some(match stems {
                 Some(s) => {
                     let mut v = 0.0;
-                    for k in 0..4 {
+                    for k in 0..NL {
                         let d = &s.data[k];
                         v += (d[i] * (1.0 - fr) + d[i + 1] * fr) * g[k];
                     }
@@ -315,7 +319,7 @@ impl Deck {
         let f = self.frac as f32;
         let mut v = 0.0;
         if has {
-            for k in 0..4 {
+            for k in 0..NL {
                 v += (self.s0[k] + (self.s1[k] - self.s0[k]) * f) * g[k];
             }
         } else {
@@ -351,11 +355,11 @@ impl Deck {
             ease: false,
             lp1: 0.0,
             st: Stretch::new(),
-            s0: [0.0; 4],
-            s1: [0.0; 4],
+            s0: [0.0; NL],
+            s1: [0.0; NL],
             stems: None,
-            sg: [1.0; 4],
-            sgc: [1.0; 4],
+            sg: [1.0; NL],
+            sgc: [1.0; NL],
             stems_on: false,
             declick: 0,
             frac: 0.0,
@@ -389,7 +393,7 @@ impl Deck {
             None => return (0.0, 0.0),
         };
         let stems = self.stems.take();
-        for k in 0..4 {
+        for k in 0..NL {
             let target = self.sg[k] * tp.stem[k];
             self.sgc[k] += (target - self.sgc[k]) * 0.003;
         }
