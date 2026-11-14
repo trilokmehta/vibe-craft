@@ -479,6 +479,9 @@ pub fn render_test(lib: &[crate::tracks::Track], pairs: usize) {
             eprintln!("ready: {}", t.title);
         }
     }
+    let mut tot = [[0f32, 0.0, 0.0, 0.0]; 2];
+    let mut rows: Vec<String> = Vec::new();
+    let npairs = ready.len().saturating_sub(1);
     for (n, w) in ready.windows(2).enumerate() {
         let ((ta, sa, pa, pcm_a), (tb, sb, pb, pcm_b)) = (&w[0], &w[1]);
         let rate = ta.a.bpm as f64 / tb.a.bpm as f64;
@@ -516,7 +519,15 @@ pub fn render_test(lib: &[crate::tracks::Track], pairs: usize) {
             let blend = &rms[16..(16 + (dur * 2.0) as usize).min(rms.len())];
             let lo = blend.iter().cloned().fold(f32::MAX, f32::min);
             let hi = blend.iter().cloned().fold(0.0, f32::max);
-            println!("   {:<8} loudness during blend: {:+.1} dB .. {:+.1} dB vs before", label, 20.0 * (lo / before).log10(), 20.0 * (hi / before).log10());
+            let ov = overlaps(pa, c.out_pos, pb, c.in_pos, t_bars, dur, style, scr.as_ref());
+            let dip = 20.0 * (lo / before).log10();
+            println!("   {:<8} loudness {:+.1} .. {:+.1} dB | overlap: vocals {:.1} s, bass {:.1} s, drums {:.1} s{}", label, dip, 20.0 * (hi / before).log10(), ov[0], ov[1], ov[2], if matched { "" } else { " (unmatched tempo)" });
+            let idx = if label == "layered" { 0 } else { 1 };
+            tot[idx][0] += ov[0];
+            tot[idx][1] += ov[1];
+            tot[idx][2] += if matched { 0.0 } else { ov[2] };
+            tot[idx][3] = tot[idx][3].min(dip);
+            rows.push(format!("| {} | {} → {} | {} | {:+.1} | {:.1} | {:.1} | {:.1} |", n + 1, ta.title, tb.title, label, dip, ov[0], ov[1], ov[2]));
             if std::env::var("VC_DEBUG").is_ok() {
                 let curve: Vec<String> = blend.iter().map(|v| format!("{:.0}", 20.0 * (v / before).log10())).collect();
                 println!("     dB per 0.5 s: {}", curve.join(" "));
@@ -525,4 +536,38 @@ pub fn render_test(lib: &[crate::tracks::Track], pairs: usize) {
             }
         }
     }
+    println!("\nSUMMARY over {} transitions", npairs);
+    println!("  {:<8} vocal overlap {:>5.1} s | bass overlap {:>5.1} s | drum clash (unmatched) {:>5.1} s | worst dip {:+.1} dB", "layered", tot[0][0], tot[0][1], tot[0][2], tot[0][3]);
+    println!("  {:<8} vocal overlap {:>5.1} s | bass overlap {:>5.1} s | drum clash (unmatched) {:>5.1} s | worst dip {:+.1} dB", "old", tot[1][0], tot[1][1], tot[1][2], tot[1][3]);
+    let mut md = String::from("# Transition eval\n\n| # | Songs | Mode | Worst dip dB | Vocal overlap s | Bass overlap s | Drum overlap s |\n|---|---|---|---|---|---|---|\n");
+    for r in rows {
+        md.push_str(&r);
+        md.push('\n');
+    }
+    let _ = std::fs::write(out.join("report.md"), md);
+}
+
+/// Seconds during a blend where both songs play the same kind of layer audibly:
+/// (vocals, bass, drums). Uses the real fade curves and each song's layer activity.
+pub fn overlaps(pa: &Profile, out_pos: f64, pb: &Profile, in_pos: f64, t_bars: f32, dur_secs: f32, style: crate::engine::Style, script: Option<&crate::engine::Script>) -> [f32; 3] {
+    let steps = 96;
+    let (i0, j0) = (pa.bar_at(out_pos), pb.bar_at(in_pos));
+    let mut hits = [0usize; 3];
+    for s in 0..steps {
+        let x = (s as f32 + 0.5) / steps as f32;
+        let (mut o, mut i) = crate::engine::trans_params(style, x);
+        if let Some(sc) = script {
+            crate::engine::apply_script(sc, x, &mut o, &mut i);
+        }
+        let ba = i0 + (x * t_bars) as isize;
+        let bb = j0 + (x * t_bars) as isize;
+        for (slot, k) in [V, BA, DR].into_iter().enumerate() {
+            let a_on = pa.frac_on(k, ba, ba + 1) > 0.0 && o.gain * o.stem[k] > 0.3;
+            let b_on = pb.frac_on(k, bb, bb + 1) > 0.0 && i.gain * i.stem[k] > 0.3;
+            if a_on && b_on {
+                hits[slot] += 1;
+            }
+        }
+    }
+    hits.map(|h| h as f32 / steps as f32 * dur_secs)
 }

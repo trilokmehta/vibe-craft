@@ -184,7 +184,8 @@ impl App {
                 } else if let crate::sep::ModelState::Downloading(f) = crate::sep::model_state() {
                     format!("Downloading AI layer model... {:.0}%", f * 100.0)
                 } else if let Some(p) = pct {
-                    format!("Separating layers with AI... {}%", p)
+                    let ai = tid.map(|t| self.lib[t].path.is_some()).unwrap_or(false) && crate::sep::model_state() == crate::sep::ModelState::Ready;
+                    format!("Separating layers{}... {}%", if ai { " with AI" } else { "" }, p)
                 } else {
                     "Waiting to separate layers".to_string()
                 };

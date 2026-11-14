@@ -74,6 +74,8 @@ pub struct Armed {
     pub cur: usize,
     pub in_pos: f64,
     pub why: String,
+    /// Layer-by-layer fade windows, when both songs have AI layers.
+    pub script: Option<crate::engine::Script>,
 }
 
 fn next_boundary(origin: f64, step: f64, min: f64) -> f64 {
@@ -471,7 +473,7 @@ impl App {
             m.pending = Some(Pending { deck_in: inn, trigger, start_pos: in_pos, in_rate, dur_secs: dur, style, out_bpm_eff: out_eff, script });
         }
         let why = if intro_quiet >= 2.0 { format!("{}; {} has a {:.0} s quiet intro", why, tin.title, intro_quiet) } else { why };
-        self.armed = Some(Armed { track: nt, trigger, style, beats, in_rate, out_eff, ks, matched, l_trk, cur, in_pos, why });
+        self.armed = Some(Armed { track: nt, trigger, style, beats, in_rate, out_eff, ks, matched, l_trk, cur, in_pos, why, script });
     }
 
     pub fn skip(&mut self) {

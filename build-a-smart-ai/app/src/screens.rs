@@ -132,6 +132,9 @@ impl App {
         draw_text(&fit(&detail, 16.0, ww), wx, y + 332.0, 16.0, Color::new(1.0, 1.0, 1.0, 0.6));
         draw_text("Orange: possible exits   Blue: possible entries   Green: chosen mix start   Red: mix end   Shaded: selected section   Pink: DJ preview (Ctrl+drag the lower wave)", wx, y + 358.0, 14.0, Color::new(1.0, 1.0, 1.0, 0.4));
         y += 392.0;
+        if let Some(sc) = self.armed.as_ref().and_then(|ar| ar.script) {
+            y = self.layer_timeline(&sc, prog, lx, y, lw, accent);
+        }
         rrect(lx, y, lw, 190.0, 14.0, Color::new(accent.r, accent.g, accent.b, 0.10));
         self.tx("explain", "WHY THIS TRACK NEXT", lx + 16.0, y + 26.0, 16.0, accent);
         let mut ey = y + 52.0;
@@ -736,5 +739,51 @@ impl App {
             draw_text("none found (song too short or no clear structure)", cx, y + 17.0, 15.0, Color::new(1.0, 1.0, 1.0, 0.4));
         }
         clicked
+    }
+}
+
+impl App {
+    /// Phase 4: shows the layered transition as one row per layer. In each row the
+    /// current song's layer (warm) fades out and the next song's (cool) fades in,
+    /// with a playhead while the mix runs. Returns the new y.
+    fn layer_timeline(&mut self, sc: &crate::engine::Script, prog: f32, x: f32, y: f32, w: f32, accent: Color) -> f32 {
+        let order = [(0usize, "Vocals"), (4, "Melody"), (1, "Music"), (2, "Bass"), (3, "Drums")];
+        let row_h = 22.0;
+        let h = 52.0 + row_h * order.len() as f32 + 24.0;
+        rrect(x, y, w, h, 14.0, Color::new(1.0, 1.0, 1.0, 0.05));
+        self.tx("timeline", "LAYER TIMELINE", x + 16.0, y + 26.0, 16.0, accent);
+        let warm = Color::new(1.0, 0.62, 0.25, 1.0);
+        let cool = Color::new(0.25, 0.8, 1.0, 1.0);
+        let lx = x + 90.0;
+        let lw = w - 90.0 - 16.0;
+        let cells = 64;
+        let fade = |win: (f32, f32), t: f32| if win.1 > win.0 { ((t - win.0) / (win.1 - win.0)).clamp(0.0, 1.0) } else if t >= win.0 { 1.0 } else { 0.0 };
+        for (r, (k, name)) in order.iter().enumerate() {
+            let ry = y + 44.0 + r as f32 * row_h;
+            draw_text(name, x + 16.0, ry + 14.0, 15.0, Color::new(1.0, 1.0, 1.0, 0.7));
+            rrect(lx, ry + 2.0, lw, row_h - 6.0, 4.0, Color::new(1.0, 1.0, 1.0, 0.06));
+            let cw = lw / cells as f32;
+            for c in 0..cells {
+                let t = (c as f32 + 0.5) / cells as f32;
+                let go = (fade(sc[0][*k], t) * std::f32::consts::FRAC_PI_2).cos();
+                let gi = (fade(sc[1][*k], t) * std::f32::consts::FRAC_PI_2).sin();
+                let half = (row_h - 6.0) / 2.0;
+                let cx = lx + c as f32 * cw;
+                draw_rectangle(cx, ry + 2.0, cw + 0.5, half, Color::new(warm.r, warm.g, warm.b, 0.15 + 0.75 * go));
+                draw_rectangle(cx, ry + 2.0 + half, cw + 0.5, half, Color::new(cool.r, cool.g, cool.b, 0.15 + 0.75 * gi));
+            }
+        }
+        let rows_end = y + 44.0 + row_h * order.len() as f32;
+        if prog > 0.0 {
+            let px = lx + lw * prog.clamp(0.0, 1.0);
+            draw_rectangle(px - 1.0, y + 40.0, 2.0, rows_end - y - 36.0, WHITE);
+        }
+        let ly = rows_end + 18.0;
+        draw_rectangle(lx, ly - 9.0, 12.0, 8.0, warm);
+        draw_text("current song", lx + 18.0, ly, 14.0, Color::new(1.0, 1.0, 1.0, 0.55));
+        draw_rectangle(lx + 120.0, ly - 9.0, 12.0, 8.0, cool);
+        draw_text("next song", lx + 138.0, ly, 14.0, Color::new(1.0, 1.0, 1.0, 0.55));
+        draw_text("brighter = louder", lx + 230.0, ly, 14.0, Color::new(1.0, 1.0, 1.0, 0.4));
+        y + h + 16.0
     }
 }

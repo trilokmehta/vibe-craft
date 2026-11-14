@@ -643,6 +643,16 @@ async fn main() {
             Some(dt)
         };
         app.update(dt, audio);
+        if screenshot.is_some() && std::env::var("VC_PREVIEW_TIMELINE").is_ok() {
+            // Preview the layer timeline with a typical script (demo songs have no AI layers).
+            app.tab = 1;
+            app.scroll = 330.0;
+            if let Some(ar) = app.armed.as_mut() {
+                if ar.script.is_none() {
+                    ar.script = Some([[(0.0, 0.3), (0.5, 0.95), (0.47, 0.5), (0.5, 0.8), (0.45, 0.85)], [(0.85, 1.0), (0.2, 0.55), (0.5, 0.53), (0.0, 0.25), (0.3, 0.65)]]);
+                }
+            }
+        }
         app.draw();
         if headless && frame < 6 {
             send_to_back();

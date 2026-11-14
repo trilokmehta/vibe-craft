@@ -631,6 +631,11 @@ pub fn choose_mix(ta: &Track, tin: &Track, pos: f64, rate: f64, beats: u32, calm
             if o.pos < min_pos {
                 tpen += 1.0;
             }
+            // The layer bonuses can add up to ~3 points; without this an attractive early
+            // spot could cut a song short. Play at least ~55% of the song on its own.
+            if vp.is_some() && o.pos < 0.55 * a_end {
+                continue;
+            }
         } else if let Some(lim) = opts.out_limit {
             // inside a chosen section prefer leaving as late as the section allows
             tpen = 0.8 * ((lim - o.pos) / (lim.max(1.0))).clamp(0.0, 1.0) as f32;
