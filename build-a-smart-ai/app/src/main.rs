@@ -9,6 +9,7 @@ mod ui;
 mod logo;
 mod update;
 mod sep;
+mod split;
 mod vibe;
 
 use app::{App, Armed};
@@ -174,6 +175,24 @@ async fn main() {
                 *tracks::CHOSEN_DIR.lock().unwrap() = Some(p);
             }
         }
+    }
+    if args.iter().any(|a| a == "--lib-stats") {
+        let dir = tracks::find_default_music().unwrap_or_else(|| std::path::PathBuf::from("music"));
+        let prog = std::sync::Arc::new(Mutex::new(tracks::Progress::default()));
+        tracks::start_scan(dir, prog.clone());
+        while !prog.lock().unwrap().finished {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        let mut tv = prog.lock().unwrap().result.take().unwrap_or_default();
+        tracks::finalize(&mut tv);
+        for t in &tv {
+            println!("{:6.1} bpm  conf {:4.2}  {}", t.a.bpm, t.a.beat_conf, t.title);
+        }
+        std::process::exit(0);
+    }
+    if args.iter().any(|a| a == "--onnx-inspect") {
+        sep::inspect();
+        std::process::exit(0);
     }
     if let Some(song) = arg("--sep-test") {
         let out = args.iter().position(|a| a == "--sep-test").and_then(|i| args.get(i + 2).cloned()).unwrap_or_else(|| "sep_test".to_string());

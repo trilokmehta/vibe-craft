@@ -326,7 +326,8 @@ impl App {
         let out_eff = ta.a.bpm * rate as f32;
         let (r, _mult, ts) = tempo_match(out_eff, tin);
         let auto = self.set.auto;
-        let grid_ok = ta.a.beat_conf >= 1.5 && tin.a.beat_conf >= 1.5;
+        // 1.3: below this the beat grid is usually wrong (measured on a real folk library).
+        let grid_ok = ta.a.beat_conf >= 1.3 && tin.a.beat_conf >= 1.3;
         let matched = auto && grid_ok && ts > 0.0;
         let ks = key_score(ta, tin);
         let sr = SR as f64;
@@ -744,7 +745,13 @@ impl App {
         self.lib = Rc::new(merged);
         self.sections.clear();
         self.stem_cache.clear();
-        self.stem_job = None;
+        // Song numbers change with a new library: stop the running separation and
+        // drop everything keyed by the old numbers or covers.
+        if let Some((_, job)) = self.stem_job.take() {
+            job.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        self.profiles.clear();
+        crate::ui::clear_covers();
         self.forced_out = None;
         let lib = self.lib.clone();
         self.prof = Profile::new(lib.len());
@@ -780,7 +787,7 @@ impl App {
     pub fn snap_bar(&self, tid: usize, pos: f64) -> f64 {
         let t = &self.lib[tid];
         let len = t.samples() as f64;
-        if t.a.beat_conf < 1.5 {
+        if t.a.beat_conf < 1.3 {
             return pos.clamp(0.0, len);
         }
         let bar = 4.0 * SR as f64 * 60.0 / t.a.bpm as f64;

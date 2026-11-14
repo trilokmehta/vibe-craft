@@ -242,7 +242,9 @@ pub fn tempo_match(out_eff: f32, b: &Track) -> (f64, f32, f32) {
         }
     }
     let d = best.0.ln().abs() as f32;
-    (best.0, best.1, (1.0 - d / 0.09).clamp(0.0, 1.0))
+    // Up to about 16% apart can be beat-matched: the time-stretcher keeps pitch, and
+    // with AI layers the drums hand over quickly so stretch artefacts stay short.
+    (best.0, best.1, (1.0 - d / 0.16).clamp(0.0, 1.0))
 }
 
 pub struct Pick {

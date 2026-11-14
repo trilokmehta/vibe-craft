@@ -45,76 +45,285 @@ fn set_state(s: ModelState) {
     *MODEL.lock().unwrap() = s;
 }
 
+// ONNX Runtime with DirectML (MIT licence) is loaded at run time from
+// %LOCALAPPDATA%\VibeCraft\runtime so the app stays a single .exe that the
+// auto-updater can replace. DirectML itself comes with Windows 10/11.
+const RUNTIME_VER: &str = "dml-1.22.1";
+const RUNTIME_URL: &str = "https://github.com/trilokmehta/vibe-craft/releases/download/gpu-runtime-1.22.1/onnxruntime.dll";
+const RUNTIME_SHA256: &str = "f722dd91a311b9fa4b7f2341d22c379a72fb7bc5b639df18b64821f23cdde14b";
+const RUNTIME_BYTES: f32 = 16.5e6;
+const MODEL_BYTES: f32 = 136.4e6;
+
+fn runtime_path() -> PathBuf {
+    data_dir().join("runtime").join(RUNTIME_VER).join("onnxruntime.dll")
+}
+
+fn runtime_ok() -> bool {
+    runtime_path().metadata().map(|m| m.len() > 10_000_000).unwrap_or(false)
+}
+
+fn model_ok() -> bool {
+    model_path().metadata().map(|m| m.len() >= MODEL_MIN_BYTES).unwrap_or(false)
+}
+
 pub fn model_state() -> ModelState {
     let s = MODEL.lock().unwrap().clone();
-    if s == ModelState::Missing && model_path().metadata().map(|m| m.len() >= MODEL_MIN_BYTES).unwrap_or(false) {
+    if s == ModelState::Missing && model_ok() && runtime_ok() {
         set_state(ModelState::Ready);
         return ModelState::Ready;
     }
     s
 }
 
-/// Downloads the model in the background if it is not there yet.
+/// Downloads the AI runtime and model in the background if they are not there yet.
 pub fn ensure_model() {
     if model_state() != ModelState::Missing {
         return;
     }
     set_state(ModelState::Downloading(0.0));
-    std::thread::spawn(|| match download_model() {
-        Ok(()) => set_state(ModelState::Ready),
-        Err(e) => {
-            eprintln!("sep: model download failed: {}", e);
-            set_state(ModelState::Failed(e));
+    std::thread::spawn(|| {
+        let total = (if runtime_ok() { 0.0 } else { RUNTIME_BYTES }) + if model_ok() { 0.0 } else { MODEL_BYTES };
+        let mut done = 0f32;
+        let r = (|| -> Result<(), String> {
+            if !runtime_ok() {
+                download(RUNTIME_URL, &runtime_path(), 10_000_000, Some(RUNTIME_SHA256), &mut done, total)?;
+            }
+            if !model_ok() {
+                download(MODEL_URL, &model_path(), MODEL_MIN_BYTES, None, &mut done, total)?;
+            }
+            Ok(())
+        })();
+        match r {
+            Ok(()) => set_state(ModelState::Ready),
+            Err(e) => {
+                eprintln!("sep: download failed: {}", e);
+                set_state(ModelState::Failed(e));
+            }
         }
     });
 }
 
-fn download_model() -> Result<(), String> {
-    let path = model_path();
+fn download(url: &str, path: &Path, min_bytes: u64, sha256: Option<&str>, done: &mut f32, total: f32) -> Result<(), String> {
+    use sha2::Digest;
     std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
-    let part = path.with_extension("onnx.part");
-    let resp = ureq::get(MODEL_URL).set("User-Agent", "vibe-craft").call().map_err(|e| e.to_string())?;
-    let total: f32 = resp.header("Content-Length").and_then(|s| s.parse().ok()).unwrap_or(136e6);
+    let part = path.with_extension("part");
+    let resp = ureq::get(url).set("User-Agent", "vibe-craft").call().map_err(|e| e.to_string())?;
     let mut rd = resp.into_reader();
     let mut f = std::fs::File::create(&part).map_err(|e| e.to_string())?;
     let mut buf = vec![0u8; 256 * 1024];
     let mut got = 0u64;
+    let mut hasher = sha2::Sha256::new();
     loop {
         let n = rd.read(&mut buf).map_err(|e| e.to_string())?;
         if n == 0 {
             break;
         }
         f.write_all(&buf[..n]).map_err(|e| e.to_string())?;
+        hasher.update(&buf[..n]);
         got += n as u64;
-        set_state(ModelState::Downloading((got as f32 / total).min(1.0)));
+        *done += n as f32;
+        set_state(ModelState::Downloading((*done / total.max(1.0)).min(1.0)));
     }
     drop(f);
-    if got < MODEL_MIN_BYTES {
+    if got < min_bytes {
         let _ = std::fs::remove_file(&part);
         return Err(format!("download too small ({} bytes)", got));
     }
-    std::fs::rename(&part, &path).map_err(|e| e.to_string())
+    if let Some(want) = sha256 {
+        let have: String = hasher.finalize().iter().map(|b| format!("{:02x}", b)).collect();
+        if have != want {
+            let _ = std::fs::remove_file(&part);
+            return Err("download failed its integrity check".into());
+        }
+    }
+    std::fs::rename(&part, path).map_err(|e| e.to_string())
 }
 
-static SESSION: Mutex<Option<ort::session::Session>> = Mutex::new(None);
 
-fn with_session<T>(f: impl FnOnce(&mut ort::session::Session) -> Result<T, String>) -> Result<T, String> {
-    let mut g = SESSION.lock().unwrap();
-    if g.is_none() {
-        let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
-        // Leave cores free for audio and drawing.
-        let use_threads = (threads.saturating_sub(2)).max(1);
-        let s = ort::session::Session::builder()
-            .map_err(|e| e.to_string())?
-            .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Level3)
-            .map_err(|e| e.to_string())?
-            .with_intra_threads(use_threads)
-            .map_err(|e| e.to_string())?
-            .commit_from_file(model_path())
+static RUNTIME_INIT: std::sync::Once = std::sync::Once::new();
+/// Where separation runs, for the UI: "" until the first song, then "GPU" or "CPU".
+pub static DEVICE: Mutex<&'static str> = Mutex::new("");
+
+pub fn device() -> &'static str {
+    *DEVICE.lock().unwrap()
+}
+
+fn build_session_from(gpu: bool, path: &Path) -> Result<ort::session::Session, String> {
+    use ort::session::builder::GraphOptimizationLevel;
+    let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+    // Leave cores free for audio and drawing; the GPU path needs few CPU threads.
+    // Half the cores at most, and no busy-waiting, so playback never stutters.
+    let use_threads = if gpu { 2 } else { (threads / 2).max(1) };
+    let mut b = ort::session::Session::builder()
+        .map_err(|e| e.to_string())?
+        .with_optimization_level(match std::env::var("VC_OPT").as_deref() { Ok("0") => GraphOptimizationLevel::Disable, Ok("1") => GraphOptimizationLevel::Level1, Ok("2") => GraphOptimizationLevel::Level2, _ => GraphOptimizationLevel::Level3 })
+        .map_err(|e| e.to_string())?
+        .with_intra_threads(use_threads)
+        .map_err(|e| e.to_string())?
+        .with_config_entry("session.intra_op.allow_spinning", "0")
+        .map_err(|e| e.to_string())?
+        .with_config_entry("session.inter_op.allow_spinning", "0")
+        .map_err(|e| e.to_string())?;
+    if !gpu {
+        // No memory arena: it keeps the peak allocation (over a GB) for the app's lifetime.
+        b = b
+            .with_execution_providers([ort::execution_providers::CPUExecutionProvider::default().with_arena_allocator(false).build()])
             .map_err(|e| e.to_string())?;
-        *g = Some(s);
     }
-    f(g.as_mut().unwrap())
+    if gpu {
+        // DirectML needs these two off. Graph fusion is also off: on this model it
+        // needs more video memory than an 8 GB card has.
+        b = b
+            .with_config_entry("ep.dml.disable_graph_fusion", "1")
+            .map_err(|e| e.to_string())?
+            .with_memory_pattern(false)
+            .map_err(|e| e.to_string())?
+            .with_parallel_execution(false)
+            .map_err(|e| e.to_string())?
+            .with_execution_providers([ort::execution_providers::DirectMLExecutionProvider::default().build().error_on_failure(), ort::execution_providers::CPUExecutionProvider::default().with_arena_allocator(false).build()])
+            .map_err(|e| e.to_string())?;
+    }
+    b.commit_from_file(path).map_err(|e| e.to_string())
+}
+
+enum Engine {
+    /// Whole model in one session (CPU).
+    Single(ort::session::Session),
+    /// Part A on the GPU, part B (inverse STFT) on the CPU; see split.rs.
+    Split { a: ort::session::Session, b: ort::session::Session, b_inputs: Vec<(String, i32)> },
+}
+
+fn part_paths() -> (PathBuf, PathBuf, PathBuf) {
+    let d = data_dir().join("models");
+    (d.join("htdemucs_6s.partA.onnx"), d.join("htdemucs_6s.partB.onnx"), d.join("htdemucs_6s.partB.inputs"))
+}
+
+fn dyn_type(v: &ort::value::DynValue) -> Option<i32> {
+    use ort::tensor::TensorElementType as T;
+    match v.dtype() {
+        ort::value::ValueType::Tensor { ty, .. } => Some(match ty {
+            T::Float32 => 1,
+            T::Uint8 => 2,
+            T::Int8 => 3,
+            T::Int32 => 6,
+            T::Int64 => 7,
+            T::Bool => 9,
+            T::Float16 => 10,
+            T::Float64 => 11,
+            _ => return None,
+        }),
+        _ => None,
+    }
+}
+
+fn split_engine() -> Result<Engine, String> {
+    let (pa, pb, pi) = part_paths();
+    let a = if pa.exists() {
+        build_session_from(true, &pa)?
+    } else {
+        eprintln!("sep: splitting the model for the GPU (one time)...");
+        let m = crate::split::load(&model_path())?;
+        let (ma, mb, _) = crate::split::split(&m)?;
+        crate::split::save(&ma, &pa)?;
+        crate::split::save(&mb, &pb.with_extension("untyped"))?;
+        build_session_from(true, &pa)?
+    };
+    let b_inputs: Vec<(String, i32)> = match std::fs::read_to_string(&pi) {
+        Ok(s) if pb.exists() => s.lines().filter_map(|l| l.split_once('\t')).map(|(n, t)| (n.to_string(), t.parse().unwrap_or(1))).collect(),
+        _ => {
+            // Run part A once to learn the types of the tensors it hands to part B.
+            let mut a = a;
+            let zero = ort::value::Tensor::from_array(([1usize, 2, SEG], vec![0f32; 2 * SEG].into_boxed_slice())).map_err(|e| e.to_string())?;
+            let outs = a.run(ort::inputs!["mix" => zero]).map_err(|e| e.to_string())?;
+            let mut types: Vec<(String, i32)> = Vec::new();
+            for (name, v) in outs.iter() {
+                types.push((name.to_string(), dyn_type(&v.view().into_dyn()).ok_or("unsupported tensor type between parts")?));
+            }
+            drop(outs);
+            let untyped = pb.with_extension("untyped");
+            let mut mb = crate::split::load(&untyped)?;
+            // Part B also reads the original input when the graph does.
+            let reads_mix = mb.graph.as_ref().map(|g| g.node.iter().any(|n| n.input.iter().any(|i| i == "mix"))).unwrap_or(false);
+            if reads_mix {
+                types.push(("mix".to_string(), 1));
+            }
+            crate::split::type_inputs(&mut mb, &types);
+            crate::split::save(&mb, &pb)?;
+            let _ = std::fs::remove_file(untyped);
+            std::fs::write(&pi, types.iter().map(|(n, t)| format!("{}\t{}\n", n, t)).collect::<String>()).map_err(|e| e.to_string())?;
+            let b = build_session_from(false, &pb)?;
+            return Ok(Engine::Split { a, b, b_inputs: types });
+        }
+    };
+    let b = build_session_from(false, &pb)?;
+    Ok(Engine::Split { a, b, b_inputs })
+}
+
+static ENGINE: Mutex<Option<Engine>> = Mutex::new(None);
+
+/// Runs the model on one 7.8 s stereo window; returns the flat [6, 2, SEG] stems.
+fn infer(input: &[f32]) -> Result<Vec<f32>, String> {
+    let mut g = ENGINE.lock().unwrap();
+    if g.is_none() {
+        let mut init_err = None;
+        RUNTIME_INIT.call_once(|| {
+            // Always load our own copy: Windows has an older onnxruntime.dll in System32.
+            if let Err(e) = ort::init_from(runtime_path().to_string_lossy().to_string()).commit() {
+                init_err = Some(e.to_string());
+            }
+        });
+        if let Some(e) = init_err {
+            return Err(format!("AI runtime failed to load: {}", e));
+        }
+        let want_gpu = std::env::var("VC_CPU").is_err();
+        let e = match if want_gpu { split_engine() } else { Err("CPU forced".into()) } {
+            Ok(e) => {
+                *DEVICE.lock().unwrap() = "GPU";
+                e
+            }
+            Err(err) => {
+                if want_gpu {
+                    eprintln!("sep: GPU unavailable ({}), using CPU", err);
+                }
+                *DEVICE.lock().unwrap() = "CPU";
+                Engine::Single(build_session_from(false, &model_path())?)
+            }
+        };
+        eprintln!("sep: separating on {}", device());
+        *g = Some(e);
+    }
+    let mk = || ort::value::Tensor::from_array(([1usize, 2, SEG], input.to_vec().into_boxed_slice())).map_err(|e| e.to_string());
+    let res = match g.as_mut().unwrap() {
+        Engine::Single(s) => {
+            let outs = s.run(ort::inputs!["mix" => mk()?]).map_err(|e| e.to_string())?;
+            let (_, d) = outs["stems"].try_extract_tensor::<f32>().map_err(|e| e.to_string())?;
+            Ok(d.to_vec())
+        }
+        Engine::Split { a, b, b_inputs } => {
+            let mut outs_a = a.run(ort::inputs!["mix" => mk()?]).map_err(|e| e.to_string())?;
+            let mut feed: Vec<(String, ort::session::SessionInputValue)> = Vec::new();
+            for (name, _) in b_inputs.iter() {
+                if name == "mix" {
+                    feed.push((name.clone(), mk()?.into_dyn().into()));
+                } else {
+                    let v = outs_a.remove(name.as_str()).ok_or_else(|| format!("part A did not produce {}", name))?;
+                    feed.push((name.clone(), v.into()));
+                }
+            }
+            let outs = b.run(feed).map_err(|e| e.to_string())?;
+            let (_, d) = outs["stems"].try_extract_tensor::<f32>().map_err(|e| e.to_string())?;
+            Ok(d.to_vec())
+        }
+    };
+    if res.is_err() && matches!(g.as_ref(), Some(Engine::Split { .. })) {
+        // GPU failed mid-run (e.g. out of video memory): switch to CPU for good.
+        eprintln!("sep: GPU run failed, switching to CPU");
+        *DEVICE.lock().unwrap() = "CPU";
+        *g = Some(Engine::Single(build_session_from(false, &model_path())?));
+        drop(g);
+        return infer(input);
+    }
+    res
 }
 
 /// Stereo decode at the file's own rate, capped at 9 minutes like the main decoder.
@@ -203,7 +412,9 @@ fn resample(x: &[f32], from: u32, to: u32) -> Vec<f32> {
 }
 
 /// Runs the model over a stereo 44.1 kHz song. Returns 6 stems x 2 channels.
-fn run_model(l: &[f32], r: &[f32], progress: &AtomicU32) -> Result<Vec<[Vec<f32>; 2]>, String> {
+/// Returns the 6 model stems as mono 44.1 kHz (stereo is folded down as each window
+/// arrives, which halves the memory this needs).
+fn run_model(l: &[f32], r: &[f32], progress: &AtomicU32, cancel: &std::sync::atomic::AtomicBool) -> Result<Vec<Vec<f32>>, String> {
     let total = l.len();
     let overlap = SEG / 4;
     let stride = SEG - overlap;
@@ -214,32 +425,28 @@ fn run_model(l: &[f32], r: &[f32], progress: &AtomicU32) -> Result<Vec<[Vec<f32>
         win[i] = f;
         win[SEG - 1 - i] = f;
     }
-    let mut out: Vec<[Vec<f32>; 2]> = (0..6).map(|_| [vec![0f32; total], vec![0f32; total]]).collect();
+    let mut out: Vec<Vec<f32>> = (0..6).map(|_| vec![0f32; total]).collect();
     let mut wsum = vec![0f32; total];
     let mut input = vec![0f32; 2 * SEG];
     for c in 0..chunks {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("cancelled".into());
+        }
         let start = c * stride;
         let end = (start + SEG).min(total);
         let clen = end - start;
         input.iter_mut().for_each(|v| *v = 0.0);
         input[..clen].copy_from_slice(&l[start..end]);
         input[SEG..SEG + clen].copy_from_slice(&r[start..end]);
-        let stems: Vec<f32> = with_session(|s| {
-            let t = ort::value::Tensor::from_array(([1usize, 2, SEG], input.clone().into_boxed_slice())).map_err(|e| e.to_string())?;
-            let outs = s.run(ort::inputs!["mix" => t]).map_err(|e| e.to_string())?;
-            let (_, d) = outs["stems"].try_extract_tensor::<f32>().map_err(|e| e.to_string())?;
-            Ok(d.to_vec())
-        })?;
+        let stems: Vec<f32> = infer(&input)?;
         if stems.len() < 6 * 2 * SEG {
             return Err("unexpected model output size".into());
         }
         for s in 0..6 {
-            for ch in 0..2 {
-                let base = (s * 2 + ch) * SEG;
-                let o = &mut out[s][ch];
-                for i in 0..clen {
-                    o[start + i] += stems[base + i] * win[i];
-                }
+            let (bl, br) = (s * 2 * SEG, (s * 2 + 1) * SEG);
+            let o = &mut out[s];
+            for i in 0..clen {
+                o[start + i] += 0.5 * (stems[bl + i] + stems[br + i]) * win[i];
             }
         }
         for i in 0..clen {
@@ -248,10 +455,8 @@ fn run_model(l: &[f32], r: &[f32], progress: &AtomicU32) -> Result<Vec<[Vec<f32>
         progress.store(((c + 1) * 97 / chunks) as u32, Ordering::Relaxed);
     }
     for s in out.iter_mut() {
-        for ch in s.iter_mut() {
-            for (v, w) in ch.iter_mut().zip(&wsum) {
-                *v /= w.max(1e-8);
-            }
+        for (v, w) in s.iter_mut().zip(&wsum) {
+            *v /= w.max(1e-8);
         }
     }
     Ok(out)
@@ -324,7 +529,7 @@ fn cache_save(key: &str, s: &Stems, n: usize) {
 /// Separate a song file into the app's layers, aligned to its `n`-sample 22 kHz mono pcm.
 /// `mix` is that pcm; anything the model leaves out goes into Music so the layers
 /// always add back up to the original.
-pub fn separate_file(path: &Path, mix: &[f32], progress: &AtomicU32) -> Result<Stems, String> {
+pub fn separate_file(path: &Path, mix: &[f32], progress: &AtomicU32, cancel: &std::sync::atomic::AtomicBool) -> Result<Stems, String> {
     let n = mix.len();
     let key = cache_key(path, n);
     if let Some(k) = &key {
@@ -338,11 +543,11 @@ pub fn separate_file(path: &Path, mix: &[f32], progress: &AtomicU32) -> Result<S
     }
     let (l, r, sr) = decode_stereo(path)?;
     let (l, r) = (resample(&l, sr, MSR), resample(&r, sr, MSR));
-    let st = run_model(&l, &r, progress)?;
+    let st = run_model(&l, &r, progress, cancel)?;
+    drop((l, r));
     // Model order: drums, bass, other, vocals, guitar, piano.
     let mono = |i: usize| -> Vec<f32> {
-        let m: Vec<f32> = st[i][0].iter().zip(&st[i][1]).map(|(a, b)| 0.5 * (a + b)).collect();
-        let mut d = resample(&m, MSR, SR);
+        let mut d = resample(&st[i], MSR, SR);
         d.resize(n, 0.0);
         d
     };
@@ -404,10 +609,25 @@ pub fn self_test(song: &Path, out: &Path) -> Result<(), String> {
     let t0 = std::time::Instant::now();
     let prog = AtomicU32::new(0);
     let (l2, r2) = (resample(&l, sr, MSR), resample(&r, sr, MSR));
-    let st = run_model(&l2, &r2, &prog)?;
-    drop(st);
+    let never = std::sync::atomic::AtomicBool::new(false);
+    let st = run_model(&l2, &r2, &prog, &never)?;
     let secs = t0.elapsed().as_secs_f32();
-    let s = separate_file(song, &mix, &prog)?;
+    let s = separate_file(song, &mix, &prog, &never)?;
+    // Compare this run (on whatever device) with the cached result: model order
+    // drums, bass, other, vocals; app layers vocals=0, bass=2, drums=3.
+    for (name, mi, li) in [("vocals", 3usize, 0usize), ("bass", 1, 2), ("drums", 0, 3)] {
+        let mut d = resample(&st[mi], MSR, SR);
+        d.resize(mix.len(), 0.0);
+        let c = &s.data[li];
+        let (mut err, mut tot) = (0f64, 0f64);
+        for i in (0..d.len()).step_by(3) {
+            err += ((d[i] - c[i]) as f64).powi(2);
+            tot += (c[i] as f64).powi(2);
+        }
+        println!("{:<7} this run vs cached result: {:.2}% difference", name, 100.0 * (err / tot.max(1e-12)).sqrt());
+    }
+    drop(st);
+    println!("device: {}", device());
     std::fs::create_dir_all(out).map_err(|e| e.to_string())?;
     write_wav(&out.join("mix.wav"), &mix, SR);
     let e = |x: &[f32]| (x.iter().map(|v| (*v as f64).powi(2)).sum::<f64>() / x.len() as f64).sqrt();
@@ -419,4 +639,18 @@ pub fn self_test(song: &Path, out: &Path) -> Result<(), String> {
     let song_secs = mix.len() as f32 / SR as f32;
     println!("song {:.0} s, model time {:.1} s (x{:.2} real time)", song_secs, secs, secs / song_secs);
     Ok(())
+}
+
+/// `--onnx-inspect`: prints the nodes at the end of the model graph (development aid).
+pub fn inspect() {
+    use protobuf::Message;
+    let bytes = std::fs::read(model_path()).expect("model");
+    let m = onnx_protobuf::ModelProto::parse_from_bytes(&bytes).expect("parse");
+    let g = &m.graph;
+    println!("nodes {} inits {} value_info {} inputs {:?} outputs {:?}", g.node.len(), g.initializer.len(), g.value_info.len(), g.input.iter().map(|i| &i.name).collect::<Vec<_>>(), g.output.iter().map(|i| &i.name).collect::<Vec<_>>());
+    let first = g.node.iter().position(|n| n.name.starts_with("/real_istft")).unwrap_or(0);
+    println!("first istft node at {}", first);
+    for n in g.node.iter().skip(first.saturating_sub(3)) {
+        println!("{:>5} {:<14} {:<40} in={:?} out={:?}", 0, n.op_type, n.name, n.input, n.output);
+    }
 }

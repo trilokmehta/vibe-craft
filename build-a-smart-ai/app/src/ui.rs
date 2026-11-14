@@ -130,6 +130,11 @@ pub fn rrect(x: f32, y: f32, w: f32, h: f32, r: f32, c: Color) {
     draw_mesh(&Mesh { vertices: verts, indices: idx, texture: None });
 }
 
+/// Frees all cached cover textures (call when the library is replaced).
+pub fn clear_covers() {
+    COVERS.with(|m| m.borrow_mut().clear());
+}
+
 pub fn art(x: f32, y: f32, s: f32, t: &Track) {
     if let Some(cv) = &t.cover {
         let key = Arc::as_ptr(cv) as usize;

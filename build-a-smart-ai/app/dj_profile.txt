@@ -1,46 +1,46 @@
-g	Unknown	-0.4700004
-g	Focus	-0.07499999
 g	House	-0.235
-g	Synthwave	0.044999998
-g	Workout	-0.125
+g	Unknown	-0.4700004
 g	Techno	-0.11
+g	Focus	-0.07499999
+g	Synthwave	0.120000005
+g	Workout	-0.125
 g	Pop	-0.235
-a	Unknown artist	0.09
-a	Gaurav Bisht, Mamta Arya	-0.132
-a	The Afterglow	0.054000005
-a	Lalit Mohan Joshi	-0.282
 a	Gajendra Rana	-0.15
-a	B.K. Samant	0.09
-a	Ambient Atlas	-0.08999999
 a	Priyanka Meher, Deepak Meher	0.018000001
-a	Diksha Dhoundiyal, Vijay Prakash	0.018000001
-a	Jitendra Tomkyal	-0.042000003
-a	Jagmohan Digari	0.19800003
-a	Gajendra Rana, Meena Rana	-0.023999995
-a	Aria Lane	-0.282
-a	Lalit Mohan Joshi, Jitendra Tomkyal	0.018000001
-a	Gaurav Bisht	-0.22800002
-a	Late.Pappu Karki, Meena Rana	-0.132
-a	Inder Arya, Jyoti Rana	0.036000002
-a	Gunjan Dangwal, Ranjeet Singh, Vishal Sharma	-0.11400001
-a	Nova Drift	-0.132
+a	Gaurav Bisht, Mamta Arya	-0.132
+a	Unknown artist	0.09
+a	Ambient Atlas	-0.08999999
+a	Lalit Mohan Joshi	-0.282
 a	Pandavaas	0.018000001
 a	Manoj Arya	0.018000001
 a	Balbir Rana, Kalpana Chauhan	0.036000002
-a	Fauji Lalit Mohan Joshi	0.036000002
 a	Pulse Theory	-0.15
-a	Inder Arya	-0.15
-a	Mahesh Joshi	0.036000002
-a	Diksha Dhoundiyal, Fauji Dayal Mehra	0.036000002
+a	Fauji Lalit Mohan Joshi	0.036000002
 a	Balveer singh rana	0.09
-a	Your music	0.018000001
-a	Mara Voss	-0.132
-a	Kito Vale	-0.15
-a	Chandra Prakash	0.036000002
-a	Inder Arya, Anisha Ranghar, Raj Tiger	0.036000002
-a	Amit Saagar	0.072000004
 a	Govind Digari, Khushi Joshi	0.018000001
+a	Mahesh Joshi	0.036000002
+a	Kito Vale	-0.15
+a	Gajendra Rana, Meena Rana	-0.023999995
+a	The Afterglow	0.14400001
+a	Aria Lane	-0.282
+a	Mara Voss	-0.132
+a	Inder Arya	-0.15
+a	B.K. Samant	0.09
+a	Diksha Dhoundiyal, Vijay Prakash	0.018000001
+a	Nova Drift	-0.132
 a	Pappu Karki	-0.22800002
+a	Gaurav Bisht	-0.22800002
+a	Gunjan Dangwal, Ranjeet Singh, Vishal Sharma	-0.11400001
+a	Inder Arya, Jyoti Rana	0.036000002
+a	Your music	0.018000001
+a	Jagmohan Digari	0.19800003
+a	Lalit Mohan Joshi, Jitendra Tomkyal	0.018000001
+a	Inder Arya, Anisha Ranghar, Raj Tiger	0.036000002
+a	Late.Pappu Karki, Meena Rana	-0.132
+a	Chandra Prakash	0.036000002
+a	Amit Saagar	0.072000004
+a	Jitendra Tomkyal	-0.042000003
+a	Diksha Dhoundiyal, Fauji Dayal Mehra	0.036000002
 t	Midnight Circuit	Nova Drift	2	1	0	0	-0.22
 t	Glass Elevator	Nova Drift	0	0	0	0	0
 t	Skyline Rush	Kito Vale	1	1	0	0	-0.25
@@ -52,7 +52,7 @@ t	Tidewater	Hazel Moon	0	0	0	0	0
 t	Back Alley Gold	Rook & Co	0	0	0	0	0
 t	Sunset Boulevard	Aria Lane	3	2	0	0	-0.47
 t	Electric Heart	Aria Lane	0	0	0	0	0
-t	Chrome Horizon	The Afterglow	3	0	0	0	0.089999996
+t	Chrome Horizon	The Afterglow	4	0	0	0	0.24000001
 t	Overdrive	Pulse Theory	1	1	0	0	-0.25
 t	Last Dance	Luna Reyes	0	0	0	0	0
 t	Deep Focus Loop	Ambient Atlas	11	3	0	0	-0.14999998

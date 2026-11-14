@@ -12,6 +12,8 @@ pub struct StemJob {
     pub done: AtomicBool,
     pub result: Mutex<Option<Arc<Stems>>>,
     pub profile: Mutex<Option<Arc<crate::vibe::Profile>>>,
+    /// Set when the song is no longer playing or next; the AI run stops early.
+    pub cancel: AtomicBool,
 }
 
 impl App {
@@ -27,7 +29,12 @@ impl App {
             }
             return;
         }
+        let want_now: Vec<usize> = std::iter::once(self.current).chain(self.queue.first().map(|q| q.track)).collect();
         if let Some((id, job)) = self.stem_job.clone() {
+            // Skipped past this song: stop working on it so the songs that matter go next.
+            if !want_now.contains(&id) && !job.done.load(Ordering::SeqCst) {
+                job.cancel.store(true, Ordering::Relaxed);
+            }
             if job.done.load(Ordering::SeqCst) {
                 if let Some(p) = job.profile.lock().unwrap().take() {
                     self.profiles.retain(|c| c.0 != id);
@@ -42,8 +49,14 @@ impl App {
                 }
                 if let Some(s) = job.result.lock().unwrap().take() {
                     self.stem_cache.push((id, s));
-                    while self.stem_cache.len() > 4 {
-                        self.stem_cache.drain(0..1);
+                    // Keep only songs that are playing or next (plus one spare): layers are large.
+                    while self.stem_cache.len() > 3 {
+                        match self.stem_cache.iter().position(|c| !want_now.contains(&c.0)) {
+                            Some(i) => {
+                                self.stem_cache.remove(i);
+                            }
+                            None => break,
+                        }
                     }
                 }
                 self.stem_job = None;
@@ -70,7 +83,7 @@ impl App {
                 if self.stem_cache.iter().any(|c| c.0 == tid) {
                     continue;
                 }
-                let job = Arc::new(StemJob { pct: AtomicU32::new(0), done: AtomicBool::new(false), result: Mutex::new(None), profile: Mutex::new(None) });
+                let job = Arc::new(StemJob { pct: AtomicU32::new(0), done: AtomicBool::new(false), result: Mutex::new(None), profile: Mutex::new(None), cancel: AtomicBool::new(false) });
                 let path = self.lib[tid].path.clone();
                 // Wait for the AI model while it downloads; songs without a file (demo) use DSP.
                 if path.is_some() && matches!(crate::sep::model_state(), crate::sep::ModelState::Downloading(_)) {
@@ -80,10 +93,16 @@ impl App {
                     let a = &self.lib[tid].a;
                     (a.origin, 4.0 * crate::tracks::SR as f64 * 60.0 / a.bpm.max(40.0) as f64, a.bars.len())
                 };
-                let pcm = self.lib[tid].audio();
+                let track = self.lib[tid].clone();
                 let j2 = job.clone();
                 std::thread::spawn(move || {
-                    let ai = path.as_ref().map(|p| crate::sep::separate_file(p, &pcm, &j2.pct));
+                    // Decode here, not on the drawing thread.
+                    let pcm = track.audio();
+                    let ai = path.as_ref().map(|p| crate::sep::separate_file(p, &pcm, &j2.pct, &j2.cancel));
+                    if j2.cancel.load(Ordering::Relaxed) {
+                        j2.done.store(true, Ordering::SeqCst);
+                        return;
+                    }
                     let s = match ai {
                         Some(Ok(s)) => s,
                         other => {
@@ -182,10 +201,12 @@ impl App {
                 let msg = if !self.use_stems {
                     "Layers are off".to_string()
                 } else if let crate::sep::ModelState::Downloading(f) = crate::sep::model_state() {
-                    format!("Downloading AI layer model... {:.0}%", f * 100.0)
+                    format!("Downloading AI layer model and runtime... {:.0}%", f * 100.0)
                 } else if let Some(p) = pct {
                     let ai = tid.map(|t| self.lib[t].path.is_some()).unwrap_or(false) && crate::sep::model_state() == crate::sep::ModelState::Ready;
-                    format!("Separating layers{}... {}%", if ai { " with AI" } else { "" }, p)
+                    let dev = crate::sep::device();
+                    let tag = if !ai { String::new() } else if dev.is_empty() { " with AI".to_string() } else { format!(" with AI on {}", dev) };
+                    format!("Separating layers{}... {}%", tag, p)
                 } else {
                     "Waiting to separate layers".to_string()
                 };

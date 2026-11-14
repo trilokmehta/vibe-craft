@@ -247,7 +247,7 @@ pub fn self_test(lib: &[crate::tracks::Track], n: usize) {
         let pcm = t.audio();
         let prog = std::sync::atomic::AtomicU32::new(0);
         let t0 = std::time::Instant::now();
-        match crate::sep::separate_file(path, &pcm, &prog) {
+        match crate::sep::separate_file(path, &pcm, &prog, &std::sync::atomic::AtomicBool::new(false)) {
             Ok(s) => {
                 let bar = 4.0 * SR as f64 * 60.0 / t.a.bpm.max(40.0) as f64;
                 profs.push((t, profile(&s, t.a.origin, bar, t.a.bars.len())));
@@ -472,7 +472,7 @@ pub fn render_test(lib: &[crate::tracks::Track], pairs: usize) {
         let Some(path) = &t.path else { continue };
         let pcm = t.audio();
         let prog = std::sync::atomic::AtomicU32::new(0);
-        if let Ok(s) = crate::sep::separate_file(path, &pcm, &prog) {
+        if let Ok(s) = crate::sep::separate_file(path, &pcm, &prog, &std::sync::atomic::AtomicBool::new(false)) {
             let bar = 4.0 * SR as f64 * 60.0 / t.a.bpm.max(40.0) as f64;
             let p = profile(&s, t.a.origin, bar, t.a.bars.len());
             ready.push((t, std::sync::Arc::new(s), p, pcm));
@@ -485,7 +485,7 @@ pub fn render_test(lib: &[crate::tracks::Track], pairs: usize) {
     for (n, w) in ready.windows(2).enumerate() {
         let ((ta, sa, pa, pcm_a), (tb, sb, pb, pcm_b)) = (&w[0], &w[1]);
         let rate = ta.a.bpm as f64 / tb.a.bpm as f64;
-        let matched = (rate - 1.0).abs() < 0.08;
+        let matched = (rate.ln()).abs() < 0.16;
         let (style, beats) = if matched { (Style::Blend, 32u32) } else { (Style::Fade, 0) };
         let dur = if matched { beats as f32 * 60.0 / ta.a.bpm } else { 12.0 };
         let Some(c) = choose_mix(ta, tb, 0.0, 1.0, beats.max(16), false, MixOpts::default(), Some((pa, pb))) else { continue };
