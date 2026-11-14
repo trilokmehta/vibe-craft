@@ -593,10 +593,19 @@ pub fn analyze(pcm: &[f32]) -> Analysis {
     }
     let on = onset_env(pcm);
     let flux = on.iter().sum::<f32>() / on.len().max(1) as f32;
-    let step = (pcm.len() / 512).max(1);
-    let mut peaks = Vec::new();
-    for c in pcm.chunks(step) {
-        peaks.push(c.iter().fold(0f32, |a, &b| a.max(b.abs())));
+    // Waveform detail: loudness (RMS) per slice. Raw sample peaks sit near full scale on
+    // mastered music, which makes the wave look flat. Rescale so the loud parts reach the
+    // top and quiet parts (intro, breaks, outro) stay visibly lower.
+    let step = (pcm.len() / 1536).max(1);
+    let mut peaks: Vec<f32> = pcm
+        .chunks(step)
+        .map(|c| (c.iter().map(|&b| b * b).sum::<f32>() / c.len().max(1) as f32).sqrt())
+        .collect();
+    let mut sorted = peaks.clone();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let top = sorted.get(sorted.len() * 98 / 100).copied().unwrap_or(1.0).max(1e-4);
+    for v in peaks.iter_mut() {
+        *v = (*v / top).min(1.0).powf(1.35);
     }
     Analysis {
         bpm,

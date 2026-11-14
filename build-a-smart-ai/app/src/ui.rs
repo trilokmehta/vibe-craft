@@ -488,39 +488,117 @@ impl App {
                 self.mixer.lock().unwrap().master = v;
             }
         }
-        if !narrow && !self.out_devices.is_empty() {
-            let dw = 150.0;
-            let dx = w - 24.0 - bw - 180.0 - dw;
-            let label = fit(&format!("Out: {}", if self.out_name.is_empty() { "none" } else { &self.out_name }), 14.0, dw - 16.0);
-            if self.button(dx, cy - 15.0, dw, 30.0, &label, self.out_menu, accent) {
+        self.menu_rect = (0.0, 0.0, 0.0, 0.0);
+        if !self.out_devices.is_empty() {
+            let dj_on = !self.dj_name.is_empty();
+            let dw = if narrow { 96.0 } else { 120.0 };
+            let dx = if narrow { w - 24.0 - bw - 8.0 - dw } else { w - 24.0 - bw - 180.0 - dw };
+            let by = cy - 15.0;
+            let label = if dj_on { "Outputs + DJ" } else { "Outputs" };
+            if self.button(dx, by, dw, 30.0, label, self.out_menu || dj_on, accent) {
                 self.out_menu = !self.out_menu;
             }
             if self.out_menu {
-                let rh = 28.0;
-                let mw = 300.0f32;
-                let mx = (dx + dw - mw).max(8.0);
-                let rows: Vec<(String, Option<String>)> = std::iter::once(("System default".to_string(), None))
-                    .chain(self.out_devices.iter().map(|n| (n.clone(), Some(n.clone()))))
-                    .collect();
-                let my = fy - 8.0 - rh * rows.len() as f32;
-                rrect(mx - 4.0, my - 4.0, mw + 8.0, rh * rows.len() as f32 + 8.0, 8.0, Color::new(0.08, 0.08, 0.1, 0.97));
-                let mut picked: Option<Option<String>> = None;
-                for (i, (lbl, val)) in rows.iter().enumerate() {
-                    let ry = my + rh * i as f32;
-                    let hv = self.hov(mx, ry, mw, rh);
-                    let cur = val.as_deref() == Some(self.out_name.as_str());
-                    if hv {
-                        rrect(mx, ry, mw, rh, 6.0, Color::new(1.0, 1.0, 1.0, 0.1));
+                let lim = 10usize;
+                let devs: Vec<String> = self.out_devices.iter().take(lim).cloned().collect();
+                let (dj_mix, dj_vol) = {
+                    let m = self.mixer.lock().unwrap();
+                    (m.dj_mix, m.dj_vol)
+                };
+                let rh = 26.0f32;
+                let mw = (w - 16.0).min(640.0);
+                let colw = (mw - 24.0) / 2.0;
+                let mx = (dx + dw - mw).max(8.0).min(w - mw - 8.0).max(4.0);
+                let nrows = devs.len() + 2 + 1; // header + default/off + devices (+ DJ has one more)
+                let list_h = rh * (nrows + 1) as f32;
+                let total = list_h + rh * 5.0 + 8.0;
+                let my = (fy - 8.0 - total).max(HDR + 4.0);
+                rrect(mx - 4.0, my - 4.0, mw + 8.0, total + 8.0, 10.0, Color::new(0.08, 0.08, 0.1, 0.98));
+                self.menu_rect = (mx - 4.0, my - 4.0, mw + 8.0, total + 8.0);
+                let dim = Color::new(1.0, 1.0, 1.0, 0.45);
+                let mut pick_main: Option<Option<String>> = None;
+                let mut pick_dj: Option<String> = None;
+                // column 0 = audience, column 1 = DJ
+                for col in 0..2 {
+                    let cx = mx + 8.0 + col as f32 * (colw + 8.0);
+                    draw_text(if col == 0 { "AUDIENCE (speakers, main mix)" } else { "DJ (headphones)" }, cx, my + 18.0, 14.0, dim);
+                    let mut items: Vec<(String, String)> = Vec::new();
+                    if col == 1 {
+                        items.push(("Off".into(), String::new()));
                     }
-                    draw_text(&fit(lbl, 15.0, mw - 16.0), mx + 8.0, ry + 19.0, 15.0, if cur { accent } else { WHITE });
-                    if hv && self.click {
-                        picked = Some(val.clone());
+                    items.push(("System default".into(), "*".into()));
+                    for n in &devs {
+                        items.push((n.clone(), n.clone()));
+                    }
+                    for (i, (lbl, val)) in items.iter().enumerate() {
+                        let ry = my + 26.0 + rh * i as f32;
+                        let hv = self.hov(cx, ry, colw, rh);
+                        let cur = if col == 0 {
+                            val != "*" && *val == self.out_name
+                        } else if val.is_empty() {
+                            self.dj_name.is_empty()
+                        } else {
+                            val != "*" && *val == self.dj_name
+                        };
+                        if hv {
+                            rrect(cx, ry, colw, rh, 6.0, Color::new(1.0, 1.0, 1.0, 0.1));
+                        }
+                        if cur {
+                            draw_circle(cx + 7.0, ry + rh / 2.0, 3.5, accent);
+                        }
+                        draw_text(&fit(lbl, 15.0, colw - 24.0), cx + 18.0, ry + 18.0, 15.0, if cur { accent } else { WHITE });
+                        if hv && self.click {
+                            if col == 0 {
+                                pick_main = Some(if val == "*" { None } else { Some(val.clone()) });
+                            } else {
+                                pick_dj = Some(val.clone());
+                            }
+                        }
                     }
                 }
-                if let Some(p) = picked {
-                    self.out_request = Some(p);
+                // DJ options
+                let oy = my + list_h;
+                draw_line(mx + 8.0, oy, mx + mw - 8.0, oy, 1.0, Color::new(1.0, 1.0, 1.0, 0.12));
+                let hears = if !dj_on {
+                    "DJ output is off - pick a device on the right".to_string()
+                } else if dj_mix {
+                    "DJ hears the main mix (same as the audience)".to_string()
+                } else {
+                    let a = self.snap.active;
+                    match self.snap.track[1 - a] {
+                        Some(i) => format!("DJ hears a private preview of: {}", self.lib[i].title),
+                        None => "DJ preview: waiting for the next song to load".to_string(),
+                    }
+                };
+                draw_text(&fit(&hears, 15.0, mw - 20.0), mx + 10.0, oy + 19.0, 15.0, if dj_on { accent } else { dim });
+                let bw2 = (mw - 16.0 - 12.0) / 3.0;
+                let by2 = oy + rh;
+                if self.button(mx + 8.0, by2, bw2, 24.0, if dj_mix { "Mode: Main mix" } else { "Mode: Preview" }, false, accent) {
+                    let mut m = self.mixer.lock().unwrap();
+                    m.dj_mix = !m.dj_mix;
+                    m.cue_restart();
+                }
+                if self.button(mx + 8.0 + bw2 + 6.0, by2, bw2, 24.0, "Restart preview", false, accent) {
+                    self.mixer.lock().unwrap().cue_restart();
+                }
+                if self.button(mx + 8.0 + 2.0 * (bw2 + 6.0), by2, bw2, 24.0, "Close", false, accent) {
                     self.out_menu = false;
-                } else if self.click && !self.hov(dx, cy - 15.0, dw, 30.0) {
+                }
+                draw_text("Audience volume", mx + 10.0, by2 + rh + 19.0, 15.0, WHITE);
+                let mut av = self.snap.master;
+                if self.slider(mx + 150.0, by2 + rh + 14.0, mw - 170.0, &mut av, accent) {
+                    self.mixer.lock().unwrap().master = av;
+                }
+                draw_text("DJ volume", mx + 10.0, by2 + 2.0 * rh + 19.0, 15.0, WHITE);
+                let mut v = dj_vol / 1.5;
+                if self.slider(mx + 150.0, by2 + 2.0 * rh + 14.0, mw - 170.0, &mut v, accent) {
+                    self.mixer.lock().unwrap().dj_vol = v * 1.5;
+                }
+                if let Some(p) = pick_main {
+                    self.out_request = Some(p);
+                } else if let Some(p) = pick_dj {
+                    self.dj_request = Some(p);
+                } else if self.click && !self.hov(dx, by, dw, 30.0) && !self.hov(mx - 4.0, my - 4.0, mw + 8.0, total + 8.0) {
                     self.out_menu = false;
                 }
             }
@@ -546,8 +624,15 @@ impl App {
         self.my = mouse_position().1;
         self.click = is_mouse_button_pressed(MouseButton::Left);
         self.down = is_mouse_button_down(MouseButton::Left);
+        let (real_click, real_down) = (self.click, self.down);
+        let (rx0, ry0, rw0, rh0) = self.menu_rect;
+        let under_menu = self.out_menu && rw0 > 0.0 && self.mx >= rx0 && self.mx <= rx0 + rw0 && self.my >= ry0 && self.my <= ry0 + rh0;
+        if under_menu {
+            self.click = false;
+            self.down = false;
+        }
         let wy = mouse_wheel().1;
-        if wy != 0.0 {
+        if wy != 0.0 && !under_menu {
             self.scroll -= wy.signum() * 50.0;
         }
         let max_scroll = (self.content_h - (h - HDR - FTR)).max(0.0);
@@ -558,6 +643,8 @@ impl App {
             2 => self.queue_screen(w),
             _ => self.library_screen(w),
         }
+        self.click = real_click;
+        self.down = real_down;
         self.header_footer(w, h);
         if self.tab == 3 && self.search_focus {
             return;

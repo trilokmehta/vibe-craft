@@ -25,46 +25,99 @@ fn list_outputs() -> Vec<String> {
 }
 
 static AUDIO_FAILED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static DJ_FAILED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+static LAST_AUDIO_ERR: Mutex<String> = Mutex::new(String::new());
+
+fn audio_err(s: String) {
+    eprintln!("audio: {}", s);
+    if let Ok(mut e) = LAST_AUDIO_ERR.lock() {
+        *e = s;
+    }
+}
+
+fn build_stream<T>(dev: &cpal::Device, cfg: &cpal::StreamConfig, mixer: Arc<Mutex<Mixer>>, dj: bool) -> Result<cpal::Stream, String>
+where
+    T: cpal::SizedSample + cpal::FromSample<f32>,
+{
+    use cpal::traits::DeviceTrait;
+    let channels = cfg.channels as usize;
+    let sr = cfg.sample_rate.0;
+    let mut tmp: Vec<f32> = Vec::new();
+    dev.build_output_stream(
+        cfg,
+        move |data: &mut [T], _| {
+            tmp.resize(data.len(), 0.0);
+            if let Ok(mut m) = mixer.lock() {
+                if dj { m.render_cue(&mut tmp, channels, sr as f32); } else { m.render(&mut tmp, channels); }
+            } else {
+                tmp.iter_mut().for_each(|s| *s = 0.0);
+            }
+            for (o, s) in data.iter_mut().zip(tmp.iter()) {
+                *o = T::from_sample(*s);
+            }
+        },
+        move |e| {
+            eprintln!("audio error: {}", e);
+            if dj { DJ_FAILED.store(true, std::sync::atomic::Ordering::Relaxed); } else { AUDIO_FAILED.store(true, std::sync::atomic::Ordering::Relaxed); }
+        },
+        None,
+    )
+    .map_err(|e| e.to_string())
+}
 
 /// Opens the named output device (None = system default). Returns the stream and device name.
-fn start_audio(mixer: Arc<Mutex<Mixer>>, want: Option<&str>) -> Option<(cpal::Stream, String)> {
+fn start_audio(mixer: Arc<Mutex<Mixer>>, want: Option<&str>, dj: bool) -> Option<(cpal::Stream, String)> {
     use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
     let host = cpal::default_host();
     let dev = match want {
-        Some(n) => host.output_devices().ok()?.find(|d| d.name().ok().as_deref() == Some(n))?,
-        None => host.default_output_device()?,
+        Some(n) => match host.output_devices().ok().and_then(|mut it| it.find(|d| d.name().ok().as_deref() == Some(n))) {
+            Some(d) => d,
+            None => {
+                audio_err(format!("device '{}' not found", n));
+                return None;
+            }
+        },
+        None => match host.default_output_device() {
+            Some(d) => d,
+            None => {
+                audio_err("no default output device".into());
+                return None;
+            }
+        },
     };
     let dev_name = dev.name().unwrap_or_default();
-    AUDIO_FAILED.store(false, std::sync::atomic::Ordering::Relaxed);
-    let cfg = dev.default_output_config().ok()?;
-    if cfg.sample_format() != cpal::SampleFormat::F32 {
+    if dj { DJ_FAILED.store(false, std::sync::atomic::Ordering::Relaxed); } else { AUDIO_FAILED.store(false, std::sync::atomic::Ordering::Relaxed); }
+    let cfg = match dev.default_output_config() {
+        Ok(c) => c,
+        Err(e) => {
+            audio_err(format!("{}: {}", dev_name, e));
+            return None;
+        }
+    };
+    let fmt = cfg.sample_format();
+    if !dj {
+        mixer.lock().ok()?.set_sr(cfg.sample_rate().0 as f32);
+    }
+    let sc: cpal::StreamConfig = cfg.into();
+    let r = match fmt {
+        cpal::SampleFormat::F32 => build_stream::<f32>(&dev, &sc, mixer, dj),
+        cpal::SampleFormat::I16 => build_stream::<i16>(&dev, &sc, mixer, dj),
+        cpal::SampleFormat::U16 => build_stream::<u16>(&dev, &sc, mixer, dj),
+        cpal::SampleFormat::I32 => build_stream::<i32>(&dev, &sc, mixer, dj),
+        other => Err(format!("unsupported sample format {:?}", other)),
+    };
+    let stream = match r {
+        Ok(s) => s,
+        Err(e) => {
+            audio_err(format!("{}: {}", dev_name, e));
+            return None;
+        }
+    };
+    if let Err(e) = stream.play() {
+        audio_err(format!("{}: {}", dev_name, e));
         return None;
     }
-    let channels = cfg.channels() as usize;
-    let sr = cfg.sample_rate().0;
-    mixer.lock().ok()?.set_sr(sr as f32);
-    let stream_cfg: cpal::StreamConfig = cfg.into();
-    let mc = mixer.clone();
-    let stream = dev
-        .build_output_stream(
-            &stream_cfg,
-            move |data: &mut [f32], _| {
-                if let Ok(mut m) = mc.lock() {
-                    m.render(data, channels);
-                } else {
-                    for s in data.iter_mut() {
-                        *s = 0.0;
-                    }
-                }
-            },
-            |e| {
-                eprintln!("audio error: {}", e);
-                AUDIO_FAILED.store(true, std::sync::atomic::Ordering::Relaxed);
-            },
-            None,
-        )
-        .ok()?;
-    stream.play().ok()?;
     Some((stream, dev_name))
 }
 
@@ -428,9 +481,10 @@ async fn main() {
     let mixer = Arc::new(Mutex::new(Mixer::new()));
     let mut stream: Option<cpal::Stream> = None;
     let mut want_dev: Option<String> = None;
+    let mut dj_stream: Option<cpal::Stream> = None;
     let mut out_name = String::new();
     if !headless {
-        if let Some((s, n)) = start_audio(mixer.clone(), None) {
+        if let Some((s, n)) = start_audio(mixer.clone(), None, false) {
             stream = Some(s);
             out_name = n;
         }
@@ -471,16 +525,23 @@ async fn main() {
                     want_dev = r;
                 }
                 stream = None; // drop the old stream first
-                let mut res = start_audio(mixer.clone(), want_dev.as_deref());
+                let mut res = start_audio(mixer.clone(), want_dev.as_deref(), false);
                 if res.is_none() && want_dev.is_some() {
                     want_dev = None;
-                    res = start_audio(mixer.clone(), None);
+                    res = start_audio(mixer.clone(), None, false);
                 }
                 match res {
                     Some((s, n)) => {
                         stream = Some(s);
                         app.out_name = n.clone();
-                        app.say(&format!("Audio output: {}", n));
+                        if !app.dj_name.is_empty() && app.dj_name == n {
+                            dj_stream = None;
+                            app.dj_name.clear();
+                            mixer.lock().unwrap().dj_on = false;
+                            app.say("DJ output turned off: it was the same device as the audience");
+                        } else {
+                            app.say(&format!("Audience output: {}", n));
+                        }
                     }
                     None => {
                         app.out_name.clear();
@@ -488,6 +549,46 @@ async fn main() {
                 }
             }
         }
+        if !headless {
+            // DJ (headphone) output: "" = off, "*" = system default, otherwise a device name
+            let dj_failed = DJ_FAILED.load(std::sync::atomic::Ordering::Relaxed);
+            if dj_failed {
+                dj_stream = None;
+                app.dj_name.clear();
+                mixer.lock().unwrap().dj_on = false;
+                app.say("DJ output lost - turned off");
+                DJ_FAILED.store(false, std::sync::atomic::Ordering::Relaxed);
+            }
+            if let Some(r) = app.dj_request.take() {
+                dj_stream = None;
+                app.dj_name.clear();
+                mixer.lock().unwrap().dj_on = false;
+                if !r.is_empty() {
+                    let want = if r == "*" { None } else { Some(r.as_str()) };
+                    match start_audio(mixer.clone(), want, true) {
+                        Some((s, n)) => {
+                            if n == app.out_name {
+                                drop(s);
+                                app.say("DJ output must be a different device from the audience output");
+                            } else {
+                                dj_stream = Some(s);
+                                app.dj_name = n.clone();
+                                let mut m = mixer.lock().unwrap();
+                                m.dj_on = true;
+                                m.cue_restart();
+                                drop(m);
+                                app.say(&format!("DJ output: {}", n));
+                            }
+                        }
+                        None => {
+                            let e = LAST_AUDIO_ERR.lock().map(|e| e.clone()).unwrap_or_default();
+                            app.say(&format!("DJ output failed: {}", e));
+                        }
+                    }
+                }
+            }
+        }
+        let _keep_dj = &dj_stream;
         let device = stream.is_some();
         let audio = if headless {
             Some(0.25)

@@ -474,6 +474,18 @@ pub struct Mixer {
     pub paused: bool,
     lpo: [f32; 2],
     lpa: f32,
+    /// DJ (headphone) output: on/off, false = cue the up-next song, true = monitor the main mix.
+    pub dj_on: bool,
+    pub dj_mix: bool,
+    pub dj_vol: f32,
+    cue_pos: f64,
+    cue_track: Option<usize>,
+    cue_seen: u32,
+    cue_stale: Option<usize>,
+    mon: std::collections::VecDeque<(f32, f32)>,
+    mon_a: (f32, f32),
+    mon_b: (f32, f32),
+    mon_ph: f32,
 }
 
 impl Mixer {
@@ -502,6 +514,17 @@ impl Mixer {
             paused: false,
             lpo: [0.0; 2],
             lpa: 1.0,
+            dj_on: false,
+            dj_mix: false,
+            dj_vol: 0.8,
+            cue_pos: 0.0,
+            cue_track: None,
+            cue_seen: 0,
+            cue_stale: None,
+            mon: std::collections::VecDeque::new(),
+            mon_a: (0.0, 0.0),
+            mon_b: (0.0, 0.0),
+            mon_ph: 0.0,
         };
         m.set_sr(44100.0);
         m
@@ -510,9 +533,13 @@ impl Mixer {
     pub fn reset(&mut self) {
         let sr = self.sr;
         let master = self.master;
+        let (dj_on, dj_mix, dj_vol) = (self.dj_on, self.dj_mix, self.dj_vol);
         *self = Mixer::new();
         self.set_sr(sr);
         self.master = master;
+        self.dj_on = dj_on;
+        self.dj_mix = dj_mix;
+        self.dj_vol = dj_vol;
     }
 
     pub fn set_sr(&mut self, sr: f32) {
@@ -539,6 +566,12 @@ impl Mixer {
         for f in 0..frames {
             self.tick();
             let (l, r) = self.frame();
+            if self.dj_on && self.dj_mix {
+                if self.mon.len() > (self.sr * 0.4) as usize {
+                    self.mon.pop_front();
+                }
+                self.mon.push_back((l, r));
+            }
             for c in 0..channels {
                 out[f * channels + c] = if c == 0 {
                     l
@@ -549,6 +582,94 @@ impl Mixer {
                 };
             }
         }
+    }
+
+    /// Output for the DJ's own device. Cue mode pre-listens the up-next song from a private
+    /// cursor (the audience never hears it); mix mode monitors the main mix.
+    pub fn render_cue(&mut self, out: &mut [f32], channels: usize, out_sr: f32) {
+        let ch = channels.max(1);
+        let frames = out.len() / ch;
+        let silent = |out: &mut [f32]| out.iter_mut().for_each(|v| *v = 0.0);
+        if !self.dj_on {
+            self.mon.clear();
+            return silent(out);
+        }
+        if self.dj_mix {
+            let step = self.sr / out_sr.max(1.0);
+            for f in 0..frames {
+                self.mon_ph += step;
+                while self.mon_ph >= 1.0 {
+                    self.mon_ph -= 1.0;
+                    self.mon_a = self.mon_b;
+                    self.mon_b = self.mon.pop_front().unwrap_or((0.0, 0.0));
+                }
+                let p = self.mon_ph;
+                let g = (self.dj_vol / self.master.max(0.1)).min(8.0); // independent of the audience volume
+                let l = self.mon_a.0 + (self.mon_b.0 - self.mon_a.0) * p;
+                let r = self.mon_a.1 + (self.mon_b.1 - self.mon_a.1) * p;
+                for c in 0..ch {
+                    out[f * ch + c] = if c == 0 { l * g } else if c == 1 { r * g } else { 0.0 };
+                }
+            }
+            return;
+        }
+        self.mon.clear();
+        let cd = 1 - self.active;
+        if self.completed != self.cue_seen {
+            // the decks just swapped: ignore the finished song until a new one is loaded
+            self.cue_seen = self.completed;
+            self.cue_stale = self.decks[cd].track;
+            self.cue_track = None;
+        }
+        let d = &self.decks[cd];
+        let p = match (&d.pcm, d.track) {
+            (Some(p), t) if t.is_some() && t != self.cue_stale => p.clone(),
+            _ => return silent(out),
+        };
+        if self.cue_track != d.track {
+            self.cue_track = d.track;
+            self.cue_pos = d.pos;
+        }
+        let (norm, origin) = (d.norm, d.origin);
+        let inc = SR as f64 / out_sr.max(1.0) as f64;
+        for f in 0..frames {
+            let i = self.cue_pos as usize;
+            let v = if i + 1 < p.len() {
+                let fr = (self.cue_pos - i as f64) as f32;
+                (p[i] * (1.0 - fr) + p[i + 1] * fr) * norm * self.dj_vol
+            } else {
+                self.cue_pos = origin; // loop the preview
+                0.0
+            };
+            self.cue_pos += inc;
+            let v = (v * 0.9).tanh();
+            for c in 0..ch {
+                out[f * ch + c] = if c < 2 { v } else { 0.0 };
+            }
+        }
+    }
+
+    /// Move the DJ preview (headphones) to `pos` in song `track`. The audience mix is untouched.
+    pub fn cue_seek(&mut self, track: usize, pos: f64) {
+        let cd = 1 - self.active;
+        if self.decks[cd].track == Some(track) {
+            self.cue_pos = pos.max(0.0);
+            self.cue_track = Some(track);
+        }
+    }
+
+    /// Where the DJ preview currently is, if it is playing a song.
+    pub fn cue_position(&self) -> Option<(usize, f64)> {
+        if self.dj_on && !self.dj_mix {
+            self.cue_track.map(|t| (t, self.cue_pos))
+        } else {
+            None
+        }
+    }
+
+    /// Restart the pre-listen from the song's planned entry point.
+    pub fn cue_restart(&mut self) {
+        self.cue_track = None;
     }
 
     /// Offline render of `secs` seconds (used when no audio device exists).
@@ -663,5 +784,140 @@ impl Mixer {
 
     pub fn trans_progress(&self) -> Option<f32> {
         self.trans.map(|t| t.elapsed as f32 / t.total as f32)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tone(n: usize) -> Arc<Vec<f32>> {
+        Arc::new((0..n).map(|i| (i as f32 * 0.05).sin() * 0.5).collect())
+    }
+
+    fn mixer_with_decks() -> Mixer {
+        let mut m = Mixer::new();
+        m.set_sr(48000.0);
+        for d in 0..2 {
+            m.decks[d].pcm = Some(tone(SR as usize * 20));
+            m.decks[d].track = Some(d);
+            m.decks[d].norm = 1.0;
+        }
+        m.decks[0].playing = true;
+        m.decks[1].pos = 1000.0;
+        m
+    }
+
+    #[test]
+    fn dj_off_is_silent() {
+        let mut m = mixer_with_decks();
+        let mut out = vec![1.0f32; 960];
+        m.render_cue(&mut out, 2, 48000.0);
+        assert!(out.iter().all(|v| *v == 0.0));
+    }
+
+    #[test]
+    fn cue_plays_next_deck_without_touching_the_audience_mix() {
+        let mut m = mixer_with_decks();
+        m.dj_on = true;
+        m.dj_mix = false;
+        let pos_before = m.decks[1].pos;
+        let mut out = vec![0.0f32; 4800];
+        m.render_cue(&mut out, 2, 48000.0);
+        assert!(out.iter().any(|v| v.abs() > 0.05), "cue should be audible");
+        assert_eq!(m.decks[1].pos, pos_before, "cue must not move the real deck");
+        assert_eq!(m.decks[1].playing, false);
+        // left and right carry the same signal
+        assert!(out.chunks(2).all(|f| f[0] == f[1]));
+    }
+
+    #[test]
+    fn cue_is_independent_of_audience_render() {
+        let mut m = mixer_with_decks();
+        m.dj_on = true;
+        let mut a = vec![0.0f32; 2400];
+        m.render(&mut a, 2);
+        let mut c = vec![0.0f32; 2400];
+        m.render_cue(&mut c, 2, 48000.0);
+        assert!(c.iter().any(|v| v.abs() > 0.05));
+        assert!(m.mon.is_empty(), "preview mode must not buffer the main mix");
+    }
+
+    #[test]
+    fn mix_mode_mirrors_the_main_output() {
+        let mut m = mixer_with_decks();
+        m.dj_on = true;
+        m.dj_mix = true;
+        m.dj_vol = 1.0;
+        m.master = 1.0;
+        let mut main = vec![0.0f32; 4800];
+        m.render(&mut main, 2);
+        let mut dj = vec![0.0f32; 4800];
+        m.render_cue(&mut dj, 2, 48000.0);
+        let peak_main = main.iter().fold(0f32, |a, b| a.max(b.abs()));
+        let peak_dj = dj.iter().fold(0f32, |a, b| a.max(b.abs()));
+        assert!(peak_main > 0.05 && peak_dj > 0.05, "{} {}", peak_main, peak_dj);
+        assert!((peak_main - peak_dj).abs() < 0.05);
+    }
+
+    #[test]
+    fn finished_song_is_not_replayed_in_preview() {
+        let mut m = mixer_with_decks();
+        m.dj_on = true;
+        let mut out = vec![0.0f32; 960];
+        m.render_cue(&mut out, 2, 48000.0);
+        // decks swap: deck 1 becomes active, deck 0 (old song) becomes the cue deck
+        m.active = 1;
+        m.completed += 1;
+        let mut out = vec![1.0f32; 960];
+        m.render_cue(&mut out, 2, 48000.0);
+        assert!(out.iter().all(|v| *v == 0.0), "old song must stay silent until a new one loads");
+        m.decks[0].track = Some(5);
+        m.decks[0].pos = 500.0;
+        m.render_cue(&mut out, 2, 48000.0);
+        assert!(out.iter().any(|v| v.abs() > 0.05));
+    }
+
+    #[test]
+    fn different_device_rate_keeps_pitch() {
+        // 44.1k cue device: advance per frame must be SR/out_sr
+        let mut m = mixer_with_decks();
+        m.dj_on = true;
+        let mut out = vec![0.0f32; 2 * 44100];
+        m.render_cue(&mut out, 2, 44100.0);
+        let moved = m.cue_pos - 1000.0;
+        assert!((moved - SR as f64).abs() < 2.0, "moved {}", moved);
+    }
+}
+
+#[cfg(test)]
+mod cue_seek_tests {
+    use super::*;
+
+    #[test]
+    fn ctrl_scrub_moves_only_the_preview() {
+        let mut m = Mixer::new();
+        m.set_sr(48000.0);
+        for d in 0..2 {
+            m.decks[d].pcm = Some(Arc::new((0..SR as usize * 20).map(|i| (i as f32 * 0.05).sin() * 0.5).collect()));
+            m.decks[d].track = Some(d);
+            m.decks[d].norm = 1.0;
+        }
+        m.decks[0].playing = true;
+        m.decks[1].pos = 1000.0;
+        m.dj_on = true;
+        let audience_before = (m.decks[0].pos, m.decks[1].pos);
+        let mut out = vec![0.0f32; 960];
+        m.render_cue(&mut out, 2, 48000.0);
+        m.cue_seek(1, 300_000.0);
+        let mut out = vec![0.0f32; 960];
+        m.render_cue(&mut out, 2, 48000.0);
+        let (t, p) = m.cue_position().unwrap();
+        assert_eq!(t, 1);
+        assert!(p > 300_000.0 && p < 301_000.0, "{}", p);
+        assert_eq!((m.decks[0].pos, m.decks[1].pos), audience_before);
+        // seeking a song that is not the up-next deck is ignored
+        m.cue_seek(0, 5.0);
+        assert!(m.cue_position().unwrap().1 > 300_000.0);
     }
 }

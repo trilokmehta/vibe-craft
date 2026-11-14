@@ -87,6 +87,11 @@ impl App {
                 marks.push((p.pos, Color::new(0.4, 0.8, 1.0, 0.55)));
             }
             marks.push((in_at, Color::new(0.3, 1.0, 0.6, 0.95)));
+            if let Some((ct, cp)) = self.mixer.lock().unwrap().cue_position() {
+                if ct == n {
+                    marks.push((cp, Color::new(1.0, 0.4, 0.9, 1.0)));
+                }
+            }
             self.wave(wx, y + 160.0, ww, 70.0, tn, ph.or(Some(in_at)), &marks, an);
             self.section_overlay(wx, y + 160.0, ww, 70.0, n, an);
             self.wave_interact(wx, y + 160.0, ww, 70.0, n, 1);
@@ -125,7 +130,7 @@ impl App {
             _ => format!("Crossfader {:.0}%  |  Deck {} on air", self.snap.xf * 100.0, if a == 0 { "A" } else { "B" }),
         };
         draw_text(&fit(&detail, 16.0, ww), wx, y + 332.0, 16.0, Color::new(1.0, 1.0, 1.0, 0.6));
-        draw_text("Orange: possible exits   Blue: possible entries   Green: chosen mix start   Red: mix end   Shaded: selected section", wx, y + 358.0, 14.0, Color::new(1.0, 1.0, 1.0, 0.4));
+        draw_text("Orange: possible exits   Blue: possible entries   Green: chosen mix start   Red: mix end   Shaded: selected section   Pink: DJ preview (Ctrl+drag the lower wave)", wx, y + 358.0, 14.0, Color::new(1.0, 1.0, 1.0, 0.4));
         y += 392.0;
         rrect(lx, y, lw, 190.0, 14.0, Color::new(accent.r, accent.g, accent.b, 0.10));
         self.tx("explain", "WHY THIS TRACK NEXT", lx + 16.0, y + 26.0, 16.0, accent);
@@ -233,7 +238,7 @@ impl App {
         self.content_h = bottom + self.scroll - HDR + 20.0;
     }
 
-    fn load_to_deck(&mut self, d: usize) {
+    pub(crate) fn load_to_deck(&mut self, d: usize) {
         let lib = self.lib.clone();
         if let Some(q) = self.queue.first() {
             let t = &lib[q.track];
@@ -649,6 +654,32 @@ impl App {
     fn wave_interact(&mut self, x: f32, y: f32, w: f32, h: f32, tid: usize, which: u8) {
         let len = self.lib[tid].samples() as f64;
         let hv = self.hov(x, y - 4.0, w, h + 8.0);
+        // Ctrl + mouse on the up-next waveform moves only the DJ preview; the audience is untouched.
+        if which == 1 && (is_key_down(KeyCode::LeftControl) || is_key_down(KeyCode::RightControl)) && (hv || self.cue_drag) {
+            if self.click && hv {
+                self.cue_drag = true;
+                let (dj_on, dj_mix) = {
+                    let m = self.mixer.lock().unwrap();
+                    (!self.dj_name.is_empty(), m.dj_mix)
+                };
+                if !dj_on {
+                    self.say("DJ output is off - open Outputs and pick your headphones first");
+                } else if dj_mix {
+                    self.say("DJ is set to Main mix - switch Mode to Preview to scrub");
+                }
+            }
+            if self.cue_drag && self.down {
+                let p = (((self.mx.clamp(x, x + w) - x) / w) as f64) * len;
+                self.mixer.lock().unwrap().cue_seek(tid, p);
+                return;
+            }
+        }
+        if self.cue_drag && !self.down {
+            self.cue_drag = false;
+        }
+        if self.cue_drag {
+            return;
+        }
         if self.click && hv {
             self.drag = Some((self.mx, which));
         }

@@ -79,7 +79,7 @@ impl App {
         let mixer = self.mixer.clone();
         let a = self.snap.active;
         let decks = [a, 1 - a];
-        let h = 62.0 + 2.0 * 178.0;
+        let h = 62.0 + 2.0 * 140.0;
         rrect(x, y, w, h, 14.0, Color::new(1.0, 1.0, 1.0, 0.05));
         self.tx("layers", "LAYERS", x + 16.0, y + 26.0, 16.0, accent);
         let on = self.use_stems;
@@ -96,15 +96,42 @@ impl App {
             };
             draw_text(&fit(&label, 18.0, w - 32.0), x + 16.0, yy, 18.0, WHITE);
             if self.snap.stems[d] {
-                let mut ky = yy + 22.0;
+                // Rotary knobs: drag around the dial (or click) to set the level.
+                let cell = (w - 32.0) / 4.0;
+                let r = 20.0f32;
+                let kc = yy + 12.0 + r + 8.0;
+                let sweep = 2.356f32; // +-135 degrees
                 for k in 0..4 {
-                    let mut v = self.snap.sg[d][k] / 1.5;
-                    draw_text(crate::stems::NAMES[k], x + 16.0, ky + 5.0, 16.0, Color::new(1.0, 1.0, 1.0, 0.75));
-                    if self.slider(x + 90.0, ky, w - 130.0, &mut v, accent) {
-                        mixer.lock().unwrap().decks[d].sg[k] = v * 1.5;
+                    let v = (self.snap.sg[d][k] / 1.5).clamp(0.0, 1.0);
+                    let cx = x + 16.0 + cell * (k as f32 + 0.5);
+                    let hv = self.hov(cx - r - 10.0, kc - r - 10.0, 2.0 * r + 20.0, 2.0 * r + 20.0);
+                    let mut nv = v;
+                    if hv && self.down {
+                        let ang = (self.mx - cx).atan2(-(self.my - kc));
+                        let ang = if ang.abs() > sweep { sweep * ang.signum() } else { ang };
+                        nv = (ang + sweep) / (2.0 * sweep);
+                        mixer.lock().unwrap().decks[d].sg[k] = nv * 1.5;
                     }
-                    ky += 24.0;
+                    let seg = 28;
+                    let pt = |a: f32, rr: f32| vec2(cx + rr * a.sin(), kc - rr * a.cos());
+                    draw_circle(cx, kc, r - 3.0, Color::new(1.0, 1.0, 1.0, if hv { 0.10 } else { 0.06 }));
+                    for i in 0..seg {
+                        let a0 = -sweep + 2.0 * sweep * i as f32 / seg as f32;
+                        let a1 = -sweep + 2.0 * sweep * (i + 1) as f32 / seg as f32;
+                        let lit = (i as f32 + 0.5) / seg as f32 <= nv;
+                        let c = if lit { accent } else { Color::new(1.0, 1.0, 1.0, 0.18) };
+                        let (p0, p1) = (pt(a0, r), pt(a1, r));
+                        draw_line(p0.x, p0.y, p1.x, p1.y, 4.0, c);
+                    }
+                    let ap = -sweep + 2.0 * sweep * nv;
+                    let (p0, p1) = (pt(ap, 5.0), pt(ap, r - 5.0));
+                    draw_line(p0.x, p0.y, p1.x, p1.y, 3.0, WHITE);
+                    let lbl = crate::stems::NAMES[k];
+                    draw_text(lbl, cx - tw(lbl, 15.0) / 2.0, kc + r + 17.0, 15.0, Color::new(1.0, 1.0, 1.0, 0.75));
+                    let pct = format!("{}", (nv * 150.0).round() as i32);
+                    draw_text(&pct, cx - tw(&pct, 12.0) / 2.0, kc + 4.0, 12.0, Color::new(1.0, 1.0, 1.0, 0.7));
                 }
+                let ky = kc + r + 34.0;
                 let bw = (w - 32.0 - 12.0) / 3.0;
                 let presets: [(&str, [f32; 4]); 3] = [("Instrumental", [0.0, 1.0, 1.0, 1.0]), ("Acapella", [1.0, 0.0, 0.0, 0.0]), ("Reset", [1.0; 4])];
                 for (pi, (name, vals)) in presets.iter().enumerate() {
@@ -130,7 +157,7 @@ impl App {
                     rrect(x + 16.0, yy + 42.0, ((w - 32.0) * p as f32 / 100.0).max(8.0), 8.0, 4.0, accent);
                 }
             }
-            yy += 178.0;
+            yy += 140.0;
         }
         h
     }

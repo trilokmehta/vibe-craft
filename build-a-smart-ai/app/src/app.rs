@@ -138,6 +138,13 @@ pub struct App {
     pub out_name: String,
     pub out_request: Option<Option<String>>,
     pub out_menu: bool,
+    /// DJ (headphone) output: current device name ("" = off) and a pending change
+    /// ("" = off, "*" = system default, otherwise a device name).
+    pub dj_name: String,
+    pub dj_request: Option<String>,
+    /// Last drawn output-menu rectangle (x, y, w, h); clicks inside it must not reach the page behind.
+    pub menu_rect: (f32, f32, f32, f32),
+    pub cue_drag: bool,
 }
 
 impl App {
@@ -187,6 +194,10 @@ impl App {
             out_name: String::new(),
             out_request: None,
             out_menu: false,
+            dj_name: String::new(),
+            dj_request: None,
+            menu_rect: (0.0, 0.0, 0.0, 0.0),
+            cue_drag: false,
             toast: String::new(),
             toast_t: 0.0,
             time: 0.0,
@@ -437,11 +448,37 @@ impl App {
     }
 
     pub fn skip(&mut self) {
-        if self.snap.trans.is_some() || self.queue.is_empty() {
+        if self.snap.trans.is_some() {
+            self.say("Already mixing - the next song is on its way");
             return;
+        }
+        if self.queue.is_empty() {
+            self.refill();
+        }
+        if self.queue.is_empty() {
+            self.say("No next song in the queue yet");
+            return;
+        }
+        if self.snap.manual {
+            // In manual (crossfader) mode the DJ does not mix by itself: just load the next song.
+            let idle = 1 - self.snap.active;
+            self.load_to_deck(idle);
+            self.say("Manual mode: next song loaded on the other deck - use the crossfader, or switch manual off");
+            return;
+        }
+        if self.snap.paused {
+            self.toggle_pause(); // the mix can only start while the sound is running
         }
         self.skip_flag = true;
         self.plan(true);
+        let armed = self.armed.as_ref().map(|a| self.lib[a.track].title.clone());
+        match armed {
+            Some(t) => self.say(&format!("Mixing into {}", t)),
+            None => {
+                self.skip_flag = false;
+                self.say("Could not start the mix - try again");
+            }
+        }
     }
 
     pub fn prev(&mut self) {
