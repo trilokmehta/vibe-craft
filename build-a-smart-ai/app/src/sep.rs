@@ -384,29 +384,53 @@ fn resample(x: &[f32], from: u32, to: u32) -> Vec<f32> {
     if from == to {
         return x.to_vec();
     }
+    // Windowed-sinc resampler with the filter precomputed for 512 sub-sample
+    // phases, so the inner loop is only multiply-adds (no sin/cos per tap).
+    const PHASES: usize = 512;
     let ratio = from as f64 / to as f64;
     let n = (x.len() as f64 / ratio).round() as usize;
     let cutoff = (1.0 / ratio).min(1.0);
-    let taps = 16isize;
+    let half = (16.0 * ratio.max(1.0)).ceil() as isize; // taps on each side
+    let width = (2 * half + 1) as usize;
+    let mut table = vec![0f32; PHASES * width];
+    for p in 0..PHASES {
+        let frac = p as f64 / PHASES as f64;
+        let row = &mut table[p * width..(p + 1) * width];
+        let mut sum = 0.0;
+        for (j, w) in row.iter_mut().enumerate() {
+            let d = (j as isize - half) as f64 - frac;
+            let t = d * cutoff;
+            let sinc = if t.abs() < 1e-9 { 1.0 } else { (std::f64::consts::PI * t).sin() / (std::f64::consts::PI * t) };
+            let win = 0.5 + 0.5 * (std::f64::consts::PI * d / (half as f64 + 1.0)).cos();
+            *w = (sinc * win) as f32;
+            sum += *w as f64;
+        }
+        // Normalise each phase so DC gain is exactly 1.
+        row.iter_mut().for_each(|w| *w = (*w as f64 / sum) as f32);
+    }
+    let len = x.len() as isize;
     let mut out = Vec::with_capacity(n);
     for i in 0..n {
         let c = i as f64 * ratio;
         let ci = c.floor() as isize;
-        let mut acc = 0.0f64;
-        let mut ws = 0.0f64;
-        for k in (ci - taps * ratio.max(1.0) as isize)..=(ci + taps * ratio.max(1.0) as isize) {
-            if k < 0 || k as usize >= x.len() {
-                continue;
+        let p = (((c - ci as f64) * PHASES as f64) as usize).min(PHASES - 1);
+        let row = &table[p * width..(p + 1) * width];
+        let start = ci - half;
+        let mut acc = 0f32;
+        if start >= 0 && start + width as isize <= len {
+            let seg = &x[start as usize..start as usize + width];
+            for j in 0..width {
+                acc += seg[j] * row[j];
             }
-            let t = (k as f64 - c) * cutoff;
-            let sinc = if t.abs() < 1e-9 { 1.0 } else { (std::f64::consts::PI * t).sin() / (std::f64::consts::PI * t) };
-            let span = taps as f64 * ratio.max(1.0);
-            let wv = 0.5 + 0.5 * (std::f64::consts::PI * (k as f64 - c) / span).cos();
-            let w = sinc * wv;
-            acc += x[k as usize] as f64 * w;
-            ws += w;
+        } else {
+            for j in 0..width {
+                let k = start + j as isize;
+                if k >= 0 && k < len {
+                    acc += x[k as usize] * row[j];
+                }
+            }
         }
-        out.push(if ws.abs() > 1e-9 { (acc / ws) as f32 } else { 0.0 });
+        out.push(acc);
     }
     out
 }
@@ -453,6 +477,9 @@ fn run_model(l: &[f32], r: &[f32], progress: &AtomicU32, cancel: &std::sync::ato
             wsum[start + i] += win[i];
         }
         progress.store(((c + 1) * 97 / chunks) as u32, Ordering::Relaxed);
+        if std::env::var("VC_LOG").is_ok() {
+            eprintln!("[{:7.1}s] sep: window {}/{} on {}", uptime(), c + 1, chunks, device());
+        }
     }
     for s in out.iter_mut() {
         for (v, w) in s.iter_mut().zip(&wsum) {
@@ -652,5 +679,40 @@ pub fn inspect() {
     println!("first istft node at {}", first);
     for n in g.node.iter().skip(first.saturating_sub(3)) {
         println!("{:>5} {:<14} {:<40} in={:?} out={:?}", 0, n.op_type, n.name, n.input, n.output);
+    }
+}
+
+/// Unloads the AI engine (several GB of committed memory with DirectML) when no
+/// song is waiting to be separated. It is loaded again, in a few seconds, on demand.
+pub fn release_engine() {
+    if let Ok(mut g) = ENGINE.try_lock() {
+        if g.is_some() {
+            *g = None;
+            eprintln!("[{:7.1}s] sep: engine unloaded (idle)", uptime());
+        }
+    }
+}
+
+/// Seconds since the app started (for log lines).
+pub fn uptime() -> f32 {
+    static T0: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    T0.get_or_init(std::time::Instant::now).elapsed().as_secs_f32()
+}
+
+#[cfg(test)]
+mod resample_tests {
+    #[test]
+    fn halves_rate_and_keeps_level() {
+        let sr = 44100.0f32;
+        let x: Vec<f32> = (0..44100).map(|i| (2.0 * std::f32::consts::PI * 1000.0 * i as f32 / sr).sin()).collect();
+        let t = std::time::Instant::now();
+        let y = super::resample(&x, 44100, 22050);
+        assert!(t.elapsed().as_millis() < 200, "too slow: {:?}", t.elapsed());
+        assert_eq!(y.len(), 22050);
+        let rms = (y[2000..20000].iter().map(|v| v * v).sum::<f32>() / 18000.0).sqrt();
+        assert!((rms - 0.7071).abs() < 0.01, "rms {}", rms);
+        // 1 kHz at 22.05 kHz: 22.05 samples per cycle
+        let zc = y[2000..20000].windows(2).filter(|w| w[0] < 0.0 && w[1] >= 0.0).count();
+        assert!((zc as i32 - 816).abs() <= 2, "zero crossings {}", zc);
     }
 }

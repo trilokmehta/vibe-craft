@@ -33,6 +33,9 @@ impl App {
         if let Some((id, job)) = self.stem_job.clone() {
             // Skipped past this song: stop working on it so the songs that matter go next.
             if !want_now.contains(&id) && !job.done.load(Ordering::SeqCst) {
+                if !job.cancel.load(Ordering::Relaxed) {
+                    eprintln!("[{:7.1}s] stems: song {} no longer playing or next, cancelling", crate::sep::uptime(), id);
+                }
                 job.cancel.store(true, Ordering::Relaxed);
             }
             if job.done.load(Ordering::SeqCst) {
@@ -79,6 +82,10 @@ impl App {
             if let Some(q) = self.queue.first() {
                 want.push(q.track);
             }
+            // Nothing left to separate: free the AI engine's memory until it is needed.
+            if want.iter().all(|t| self.stem_cache.iter().any(|c| c.0 == *t)) {
+                crate::sep::release_engine();
+            }
             for tid in want {
                 if self.stem_cache.iter().any(|c| c.0 == tid) {
                     continue;
@@ -93,13 +100,18 @@ impl App {
                     let a = &self.lib[tid].a;
                     (a.origin, 4.0 * crate::tracks::SR as f64 * 60.0 / a.bpm.max(40.0) as f64, a.bars.len())
                 };
+                eprintln!("[{:7.1}s] stems: start {} \"{}\" (current {}, next {:?})", crate::sep::uptime(), tid, self.lib[tid].title, self.current, self.queue.first().map(|q| q.track));
                 let track = self.lib[tid].clone();
                 let j2 = job.clone();
                 std::thread::spawn(move || {
+                    let t0 = std::time::Instant::now();
                     // Decode here, not on the drawing thread.
                     let pcm = track.audio();
                     let ai = path.as_ref().map(|p| crate::sep::separate_file(p, &pcm, &j2.pct, &j2.cancel));
-                    if j2.cancel.load(Ordering::Relaxed) {
+                    // A cancelled run stops between model windows. If it got through the model
+                    // anyway, keep the result (it is already in the disk cache).
+                    if j2.cancel.load(Ordering::Relaxed) && !matches!(ai, Some(Ok(_))) {
+                        eprintln!("[{:7.1}s] stems: cancelled after {:.0} s", crate::sep::uptime(), t0.elapsed().as_secs_f32());
                         j2.done.store(true, Ordering::SeqCst);
                         return;
                     }
@@ -115,6 +127,7 @@ impl App {
                     if s.ai {
                         *j2.profile.lock().unwrap() = Some(Arc::new(crate::vibe::profile(&s, origin, bar, nbars)));
                     }
+                    eprintln!("[{:7.1}s] stems: done in {:.0} s (ai {})", crate::sep::uptime(), t0.elapsed().as_secs_f32(), s.ai);
                     *j2.result.lock().unwrap() = Some(Arc::new(s));
                     j2.done.store(true, Ordering::SeqCst);
                 });
