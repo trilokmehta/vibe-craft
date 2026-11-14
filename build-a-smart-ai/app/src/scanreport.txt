@@ -1,0 +1,31 @@
+    if let Some(out) = arg("--scan-report") {
+        let dir = tracks::find_default_music().unwrap_or_else(|| std::path::PathBuf::from("music"));
+        let prog = std::sync::Arc::new(Mutex::new(tracks::Progress::default()));
+        let t0 = std::time::Instant::now();
+        tracks::start_scan(dir.clone(), prog.clone());
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            if prog.lock().unwrap().finished {
+                break;
+            }
+        }
+        let mut p = prog.lock().unwrap();
+        let tracks_v = p.result.take().unwrap_or_default();
+        let mut s = format!("{{\"folder\": \"{}\", \"seconds\": {:.1}, \"found\": {}, \"loaded\": {}, \"failed\": {}, \"tracks\": [", dir.to_string_lossy().replace('\', "/"), t0.elapsed().as_secs_f32(), p.found, tracks_v.len(), p.failed.len());
+        for (i, t) in tracks_v.iter().enumerate() {
+            if i > 0 {
+                s.push_str(", ");
+            }
+            s.push_str(&format!("{{\"title\": \"{}\", \"artist\": \"{}\", \"dur\": {:.0}, \"bpm\": {:.1}, \"conf\": {:.1}, \"key\": \"{}\", \"first_bar\": {}, \"last_bar\": {}, \"bars\": {}}}", t.title.replace('"', "'"), t.artist.replace('"', "'"), t.dur, t.a.bpm, t.a.beat_conf, tracks::camelot_str(t.a.key, t.a.minor), t.a.first_bar, t.a.last_bar, t.a.bars.len()));
+        }
+        s.push_str("], \"failures\": [");
+        for (i, f) in p.failed.iter().enumerate() {
+            if i > 0 {
+                s.push_str(", ");
+            }
+            s.push_str(&format!("\"{}\"", f.replace('"', "'").replace('\', "/")));
+        }
+        s.push_str("]}");
+        let _ = std::fs::write(out, s);
+        std::process::exit(0);
+    }

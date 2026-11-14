@@ -1,0 +1,19 @@
+{"version": 1, "values": [
+{"name": "tempo match limit", "group": "mixing", "value": 0.08, "unit": "ratio", "estimated": true},
+{"name": "phrase length", "group": "mixing", "value": 16, "unit": "beats", "estimated": true},
+{"name": "bar length", "group": "mixing", "value": 4, "unit": "beats", "estimated": true},
+{"name": "blend length (smooth/balanced/punchy)", "group": "mixing", "value": "32/16/8 beats", "estimated": true},
+{"name": "EQ low crossover", "group": "mixing", "value": 250, "unit": "Hz", "estimated": true},
+{"name": "EQ high crossover", "group": "mixing", "value": 2500, "unit": "Hz", "estimated": true},
+{"name": "echo feedback", "group": "mixing", "value": 0.5, "estimated": true},
+{"name": "queue length", "group": "queue", "value": 4, "unit": "tracks", "estimated": true},
+{"name": "BPM search range", "group": "analysis", "value": "70-175", "unit": "BPM", "estimated": true},
+{"name": "Chill target energy", "group": "mood", "value": 0.30, "estimated": true},
+{"name": "Party target energy", "group": "mood", "value": 0.85, "estimated": true},
+{"name": "Workout target energy", "group": "mood", "value": 0.80, "estimated": true},
+{"name": "Focus target energy", "group": "mood", "value": 0.42, "estimated": true},
+{"name": "Romantic target energy", "group": "mood", "value": 0.25, "estimated": true},
+{"name": "Discovery target energy", "group": "mood", "value": 0.55, "estimated": true},
+{"name": "pause", "group": "controls", "value": "Space", "estimated": true},
+{"name": "next / previous", "group": "controls", "value": "Right / Left", "estimated": true}
+]}

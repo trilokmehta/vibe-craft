@@ -1,0 +1,71 @@
+                {
+                    // layer separation: the four layers must add back up to the song and each must carry something
+                    let t0 = std::time::Instant::now();
+                    let prog = std::sync::atomic::AtomicU32::new(0);
+                    let (ta, tb) = (&lib[0], &lib[1]);
+                    let sa = std::sync::Arc::new(stems::separate(&ta.pcm, &prog));
+                    let sb = std::sync::Arc::new(stems::separate(&tb.pcm, &prog));
+                    let secs = t0.elapsed().as_secs_f32();
+                    let n = ta.pcm.len();
+                    let (mut err, mut tot) = (0f64, 0f64);
+                    for i in (n / 4..n * 3 / 4).step_by(7) {
+                        let sum: f32 = (0..4).map(|k| sa.data[k][i]).sum();
+                        let d = (sum - ta.pcm[i]) as f64;
+                        err += d * d;
+                        tot += (ta.pcm[i] as f64).powi(2);
+                    }
+                    let rel = (err / tot.max(1e-12)).sqrt();
+                    let energy: Vec<f64> = (0..4).map(|k| sa.data[k].iter().step_by(5).map(|x| (*x as f64).powi(2)).sum::<f64>() / tot.max(1e-12) * 5.0).collect();
+                    let all = energy.iter().all(|e| *e > 0.005);
+                    steps.push(Step {
+                        name: "layers",
+                        passed: rel < 0.02 && all,
+                        detail: format!("two songs separated in {:.1} s; layers add back to the song within {:.2}%; energy share vocals {:.0}% music {:.0}% bass {:.0}% drums {:.0}%", secs, rel * 100.0, energy[0] * 100.0, energy[1] * 100.0, energy[2] * 100.0, energy[3] * 100.0),
+                    });
+                    // the same blend with layer-aware transitions
+                    let mut m = Mixer::new();
+                    m.set_sr(SR as f32);
+                    let bar = 4.0 * SR as f64 * 60.0 / ta.a.bpm as f64;
+                    let bar_b = 4.0 * SR as f64 * 60.0 / tb.a.bpm as f64;
+                    let p0 = ta.a.origin + 8.0 * bar;
+                    m.decks[0].pcm = Some(ta.pcm.clone());
+                    m.decks[0].stems = Some(sa.clone());
+                    m.decks[0].track = Some(0);
+                    m.decks[0].pos = p0;
+                    m.decks[0].bpm = ta.a.bpm;
+                    m.decks[0].origin = ta.a.origin;
+                    m.decks[0].norm = ta.a.gain;
+                    m.decks[0].playing = true;
+                    m.decks[1].pcm = Some(tb.pcm.clone());
+                    m.decks[1].stems = Some(sb.clone());
+                    m.decks[1].track = Some(1);
+                    m.decks[1].bpm = tb.a.bpm;
+                    m.decks[1].origin = tb.a.origin;
+                    m.decks[1].norm = tb.a.gain;
+                    let rate = ta.a.bpm as f64 / tb.a.bpm as f64;
+                    let dur = 16.0 * 60.0 / ta.a.bpm;
+                    m.pending = Some(engine::Pending { deck_in: 1, trigger: p0 + 2.0 * bar, start_pos: tb.a.origin + 8.0 * bar_b, in_rate: rate, dur_secs: dur, style: Style::Blend, out_bpm_eff: ta.a.bpm });
+                    let mut buf = vec![0f32; SR as usize * 12 * 2];
+                    m.render(&mut buf, 2);
+                    let w = SR as usize / 2;
+                    let mut rms: Vec<f32> = Vec::new();
+                    let mut peak = 0f32;
+                    for c in buf.chunks(w * 2) {
+                        let s: f32 = c.chunks(2).map(|f| f[0] * f[0]).sum::<f32>() / w as f32;
+                        rms.push(s.sqrt());
+                    }
+                    for v in &buf {
+                        peak = peak.max(v.abs());
+                    }
+                    let body: Vec<f32> = rms[1..rms.len() - 1].to_vec();
+                    let mut sorted = body.clone();
+                    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                    let med = sorted[sorted.len() / 2];
+                    let lo = body.iter().cloned().fold(f32::MAX, f32::min);
+                    let hi = body.iter().cloned().fold(0.0, f32::max);
+                    steps.push(Step {
+                        name: "layer_mix",
+                        passed: m.completed >= 1 && lo > 0.55 * med && hi < 1.7 * med && peak < 0.98,
+                        detail: format!("layer-aware blend finished: {}; loudest {:.1} dB / quietest {:.1} dB vs typical; peak {:.2}", m.completed >= 1, 20.0 * (hi / med).log10(), 20.0 * (lo / med).log10(), peak),
+                    });
+                }

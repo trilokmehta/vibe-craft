@@ -1,0 +1,50 @@
+                {
+                    // loudness stays even through a beat-matched blend
+                    let (ta, tb) = (&lib[0], &lib[1]);
+                    let mut m = Mixer::new();
+                    m.set_sr(SR as f32);
+                    let bar = 4.0 * SR as f64 * 60.0 / ta.a.bpm as f64;
+                    let bar_b = 4.0 * SR as f64 * 60.0 / tb.a.bpm as f64;
+                    let p0 = ta.a.origin + 12.0 * bar;
+                    m.decks[0].pcm = Some(ta.pcm.clone());
+                    m.decks[0].track = Some(0);
+                    m.decks[0].pos = p0;
+                    m.decks[0].bpm = ta.a.bpm;
+                    m.decks[0].origin = ta.a.origin;
+                    m.decks[0].norm = ta.a.gain;
+                    m.decks[0].playing = true;
+                    m.decks[1].pcm = Some(tb.pcm.clone());
+                    m.decks[1].track = Some(1);
+                    m.decks[1].bpm = tb.a.bpm;
+                    m.decks[1].origin = tb.a.origin;
+                    m.decks[1].norm = tb.a.gain;
+                    let rate = ta.a.bpm as f64 / tb.a.bpm as f64;
+                    let dur = 16.0 * 60.0 / ta.a.bpm;
+                    m.pending = Some(engine::Pending { deck_in: 1, trigger: p0 + 4.0 * bar, start_pos: tb.a.origin + 8.0 * bar_b, in_rate: rate, dur_secs: dur, style: Style::Blend, out_bpm_eff: ta.a.bpm });
+                    let secs = 40usize;
+                    let mut buf = vec![0f32; SR as usize * secs * 2];
+                    m.render(&mut buf, 2);
+                    let w = SR as usize / 2;
+                    let mut rms: Vec<f32> = Vec::new();
+                    for c in buf.chunks(w * 2) {
+                        let s: f32 = c.chunks(2).map(|f| f[0] * f[0]).sum::<f32>() / w as f32;
+                        rms.push(s.sqrt());
+                    }
+                    let body: Vec<f32> = rms[2..rms.len() - 2].to_vec();
+                    let mut sorted = body.clone();
+                    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                    let med = sorted[sorted.len() / 2];
+                    let lo = body.iter().cloned().fold(f32::MAX, f32::min);
+                    let hi = body.iter().cloned().fold(0.0, f32::max);
+                    steps.push(Step {
+                        name: "mix_loudness",
+                        passed: m.completed >= 1 && lo > 0.55 * med && hi < 1.7 * med,
+                        detail: format!("blend finished: {}; loudest {:.1} dB / quietest {:.1} dB vs typical", m.completed >= 1, 20.0 * (hi / med).log10(), 20.0 * (lo / med).log10()),
+                    });
+                }
+                {
+                    // several transition points are found in a song
+                    let n_out = dj::top_out_points(&lib[0], 0.0, 8).len();
+                    let n_in = dj::top_in_points(&lib[0], 8).len();
+                    steps.push(Step { name: "multiple_points", passed: n_out >= 2 && n_in >= 2, detail: format!("{} exit points and {} entry points found in one song", n_out, n_in) });
+                }

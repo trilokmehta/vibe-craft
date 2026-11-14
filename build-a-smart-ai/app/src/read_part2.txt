@@ -1,0 +1,61 @@
+    /// Reads one output sample. When the deck runs faster or slower than
+    /// normal the audio is time-stretched (WSOLA) so the pitch stays put.
+    /// With separated layers the four layers are mixed with their own gains.
+    fn read_sample(&mut self, p: &[f32], stems: Option<&Stems>, out_sr: f32) -> Option<f32> {
+        let has = stems.is_some();
+        if has != self.stems_on {
+            self.stems_on = has;
+            self.need_reset = true;
+            self.declick = 192;
+        }
+        if (self.pos - self.expect).abs() > 3.0 {
+            self.need_reset = true;
+        }
+        let i = self.pos as usize;
+        if i + 1 >= p.len() {
+            return None;
+        }
+        let g = self.sgc;
+        let want = (self.rate - 1.0).abs() > 0.0003;
+        if !want {
+            self.stretching = false;
+            self.need_reset = true;
+            let fr = (self.pos - i as f64) as f32;
+            return Some(match stems {
+                Some(s) => {
+                    let mut v = 0.0;
+                    for k in 0..4 {
+                        let d = &s.data[k];
+                        v += (d[i] * (1.0 - fr) + d[i + 1] * fr) * g[k];
+                    }
+                    v
+                }
+                None => p[i] * (1.0 - fr) + p[i + 1] * fr,
+            });
+        }
+        if !self.stretching || self.need_reset {
+            self.stretching = true;
+            self.need_reset = false;
+            self.st.reset(self.pos);
+            self.s0 = self.st.next(p, stems, self.rate);
+            self.s1 = self.st.next(p, stems, self.rate);
+            self.frac = 0.0;
+        }
+        let f = self.frac as f32;
+        let mut v = 0.0;
+        if has {
+            for k in 0..4 {
+                v += (self.s0[k] + (self.s1[k] - self.s0[k]) * f) * g[k];
+            }
+        } else {
+            v = self.s0[0] + (self.s1[0] - self.s0[0]) * f;
+        }
+        self.frac += SR as f64 / out_sr as f64;
+        while self.frac >= 1.0 {
+            self.frac -= 1.0;
+            self.s0 = self.s1;
+            self.s1 = self.st.next(p, stems, self.rate);
+        }
+        Some(v)
+    }
+

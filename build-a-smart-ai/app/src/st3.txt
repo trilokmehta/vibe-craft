@@ -1,0 +1,27 @@
+                let a_pos = app.snap.pos[app.snap.active];
+                let cur = app.current;
+                let span = 24.0 * SR as f64 * app.snap.rate[app.snap.active];
+                app.set_section(cur, a_pos, a_pos + span);
+                sec_info = Some((cur, app.sections[cur].unwrap(), app.snap.completed));
+            }
+            if frame == 345 {
+                if let Some((cur, (a, b), _)) = sec_info {
+                    let bar = 4.0 * SR as f64 * 60.0 / lib[cur].a.bpm as f64;
+                    let ok = match &app.armed {
+                        Some(ar) => ar.trigger >= a && ar.trigger <= b + bar,
+                        None => false,
+                    };
+                    let det = match &app.armed {
+                        Some(ar) => format!("section {}-{}; mix starts at {}", dj::clock_str(a), dj::clock_str(b), dj::clock_str(ar.trigger)),
+                        None => "no plan".to_string(),
+                    };
+                    steps.push(Step { name: "section_plan", passed: ok, detail: det });
+                }
+            }
+            if frame == 460 {
+                if let Some((cur, (_, _), c0)) = sec_info {
+                    steps.push(Step { name: "section_play", passed: app.snap.completed > c0 && app.current != cur, detail: format!("only the chosen section played, then the DJ moved on (transitions {} -> {})", c0, app.snap.completed) });
+                }
+                write_results(path, &steps);
+                std::process::exit(0);
+            }

@@ -1,0 +1,15 @@
+# Build output
+target/
+# Editor caches
+.vs/
+# Music files (large, and copyrighted)
+*.mp3
+*.wav
+*.flac
+*.ogg
+*.m4a
+build-a-smart-ai/reference/
+build-a-smart-ai/app/music/
+# Local logs / session data
+build-a-smart-ai/agent-session.jsonl
+*.log
