@@ -283,6 +283,51 @@ fn onset_env(pcm: &[f32]) -> Vec<f32> {
     on
 }
 
+/// Onset signal tuned for beat tracking: log-compressed (quiet drum hits count as much as
+/// loud ones), local-average removed (sustained vocals/harmonium drop out), then lightly
+/// smoothed so a live player's few-millisecond timing wobble still lines up on one grid.
+fn onset_env_beat(pcm: &[f32]) -> Vec<f32> {
+    let n = pcm.len() / HOP;
+    let mut env = vec![0f32; n];
+    for i in 0..n {
+        let (mut e, mut h) = (0f32, 0f32);
+        for k in 0..HOP {
+            let idx = i * HOP + k;
+            let x = pcm[idx];
+            let d = if idx > 0 { x - pcm[idx - 1] } else { x };
+            e += x * x;
+            h += d * d;
+        }
+        env[i] = (e / HOP as f32).sqrt() + 2.0 * (h / HOP as f32).sqrt();
+    }
+    let mean = (env.iter().sum::<f32>() / n.max(1) as f32).max(1e-6);
+    let lg: Vec<f32> = env.iter().map(|&v| (1.0 + 30.0 * v / mean).ln()).collect();
+    let mut on = vec![0f32; n];
+    for i in 1..n {
+        on[i] = (lg[i] - lg[i - 1]).max(0.0);
+    }
+    // subtract a ~1 s moving average (prefix sums keep this O(n))
+    let w = (SR as usize / HOP / 2).max(1);
+    let mut pre = vec![0f64; n + 1];
+    for i in 0..n {
+        pre[i + 1] = pre[i] + on[i] as f64;
+    }
+    let mut out = vec![0f32; n];
+    for i in 0..n {
+        let (a, b) = (i.saturating_sub(w), (i + w + 1).min(n));
+        let avg = ((pre[b] - pre[a]) / (b - a) as f64) as f32;
+        out[i] = (on[i] - 1.2 * avg).max(0.0);
+    }
+    // 5-tap triangle smoothing (about 15 ms)
+    let mut sm = vec![0f32; n];
+    for i in 0..n {
+        let g = |j: isize| -> f32 { if j >= 0 && (j as usize) < n { out[j as usize] } else { 0.0 } };
+        let i = i as isize;
+        sm[i as usize] = (g(i - 2) + 2.0 * g(i - 1) + 3.0 * g(i) + 2.0 * g(i + 1) + g(i + 2)) / 9.0;
+    }
+    sm
+}
+
 fn interp(on: &[f32], x: f32) -> f32 {
     if x < 0.0 {
         return 0.0;
@@ -323,7 +368,11 @@ fn prior(b: f32) -> f32 {
 }
 
 pub fn detect_beats(pcm: &[f32]) -> (f32, f64, f32, f32) {
-    let on = onset_env(pcm);
+    detect_beats_with(pcm, true)
+}
+
+pub fn detect_beats_with(pcm: &[f32], tuned: bool) -> (f32, f64, f32, f32) {
+    let on = if tuned { onset_env_beat(pcm) } else { onset_env(pcm) };
     let fps = SR as f32 / HOP as f32;
     let n_use = on.len().min(20000);
     let head = &on[..n_use];
@@ -591,6 +640,9 @@ pub struct Track {
     pub user: bool,
     /// Embedded cover art, decoded to RGBA (width, height, pixels).
     pub cover: Option<Arc<(u16, u16, Vec<u8>)>>,
+    /// Source file and sample count for songs whose audio is loaded on demand.
+    pub path: Option<std::path::PathBuf>,
+    pub n: usize,
 }
 
 /// Decodes embedded picture bytes into a small RGBA thumbnail.
@@ -826,6 +878,8 @@ fn make_track(spec: Option<&Spec>, title: String, artist: String, album: String,
         dur,
         user: spec.is_none(),
         cover: None,
+        path: None,
+        n: 0,
     }
 }
 
@@ -1004,6 +1058,9 @@ pub fn start_scan(dir: std::path::PathBuf, prog: Arc<std::sync::Mutex<Progress>>
                                 t.hue = h;
                             }
                             t.cover = cover;
+                            t.n = t.pcm.len();
+                            t.path = Some(path.clone());
+                            t.pcm = Arc::new(Vec::new()); // free the audio; it is re-decoded when played
                             out.lock().unwrap().push((i, t));
                             let mut p = prog.lock().unwrap();
                             p.done += 1;
@@ -1061,4 +1118,79 @@ pub fn find_default_music() -> Option<std::path::PathBuf> {
         }
     }
     None
+}
+
+// ------------------------------------------------- on-demand audio
+// Scanned songs keep only their analysis in memory; the decoded audio is dropped and
+// re-decoded when a song is about to play (a small cache keeps the last few).
+
+#[derive(Default)]
+struct AudioCache {
+    map: std::collections::HashMap<std::path::PathBuf, Arc<Vec<f32>>>,
+    order: Vec<std::path::PathBuf>,
+    loading: std::collections::HashSet<std::path::PathBuf>,
+}
+
+fn audio_cache() -> &'static std::sync::Mutex<AudioCache> {
+    static C: std::sync::OnceLock<std::sync::Mutex<AudioCache>> = std::sync::OnceLock::new();
+    C.get_or_init(|| std::sync::Mutex::new(AudioCache::default()))
+}
+
+const CACHE_KEEP: usize = 4;
+
+fn cache_put(p: &std::path::Path, a: Arc<Vec<f32>>) {
+    let mut c = audio_cache().lock().unwrap();
+    c.loading.remove(p);
+    c.order.retain(|q| q != p);
+    c.order.push(p.to_path_buf());
+    c.map.insert(p.to_path_buf(), a);
+    while c.order.len() > CACHE_KEEP {
+        let old = c.order.remove(0);
+        c.map.remove(&old);
+    }
+}
+
+impl Track {
+    /// Number of samples (works whether or not the audio is currently in memory).
+    pub fn samples(&self) -> usize {
+        if self.path.is_some() {
+            self.n
+        } else {
+            self.pcm.len()
+        }
+    }
+
+    /// The decoded audio. Demo songs always have it; scanned songs are decoded on demand.
+    pub fn audio(&self) -> Arc<Vec<f32>> {
+        let p = match &self.path {
+            None => return self.pcm.clone(),
+            Some(p) => p,
+        };
+        if let Some(a) = audio_cache().lock().unwrap().map.get(p).cloned() {
+            return a;
+        }
+        let a = Arc::new(decode_file(p).map(|d| d.pcm).unwrap_or_else(|_| vec![0.0; self.n]));
+        cache_put(p, a.clone());
+        a
+    }
+
+    /// Starts decoding in the background so `audio()` is instant when the song is needed.
+    pub fn prefetch(&self) {
+        let p = match &self.path {
+            None => return,
+            Some(p) => p.clone(),
+        };
+        {
+            let mut c = audio_cache().lock().unwrap();
+            if c.map.contains_key(&p) || c.loading.contains(&p) {
+                return;
+            }
+            c.loading.insert(p.clone());
+        }
+        let n = self.n;
+        std::thread::spawn(move || {
+            let a = Arc::new(decode_file(&p).map(|d| d.pcm).unwrap_or_else(|_| vec![0.0; n]));
+            cache_put(&p, a);
+        });
+    }
 }

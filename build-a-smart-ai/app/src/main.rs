@@ -18,10 +18,24 @@ fn conf() -> Conf {
     Conf { window_title: "Smart AI DJ".to_string(), window_width: 1280, window_height: 760, high_dpi: false, ..Default::default() }
 }
 
-fn start_audio(mixer: Arc<Mutex<Mixer>>) -> Option<cpal::Stream> {
+fn list_outputs() -> Vec<String> {
+    use cpal::traits::{DeviceTrait, HostTrait};
+    let host = cpal::default_host();
+    host.output_devices().map(|it| it.filter_map(|d| d.name().ok()).collect()).unwrap_or_default()
+}
+
+static AUDIO_FAILED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Opens the named output device (None = system default). Returns the stream and device name.
+fn start_audio(mixer: Arc<Mutex<Mixer>>, want: Option<&str>) -> Option<(cpal::Stream, String)> {
     use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
     let host = cpal::default_host();
-    let dev = host.default_output_device()?;
+    let dev = match want {
+        Some(n) => host.output_devices().ok()?.find(|d| d.name().ok().as_deref() == Some(n))?,
+        None => host.default_output_device()?,
+    };
+    let dev_name = dev.name().unwrap_or_default();
+    AUDIO_FAILED.store(false, std::sync::atomic::Ordering::Relaxed);
     let cfg = dev.default_output_config().ok()?;
     if cfg.sample_format() != cpal::SampleFormat::F32 {
         return None;
@@ -43,12 +57,15 @@ fn start_audio(mixer: Arc<Mutex<Mixer>>) -> Option<cpal::Stream> {
                     }
                 }
             },
-            |e| eprintln!("audio error: {}", e),
+            |e| {
+                eprintln!("audio error: {}", e);
+                AUDIO_FAILED.store(true, std::sync::atomic::Ordering::Relaxed);
+            },
             None,
         )
         .ok()?;
     stream.play().ok()?;
-    Some(stream)
+    Some((stream, dev_name))
 }
 
 #[cfg(windows)]
@@ -101,6 +118,280 @@ async fn main() {
             }
         }
     }
+    if let Some(out) = arg("--automix-eval") {
+        // End to end: the real AutoMix planner picks style and mix points for consecutive
+        // songs, then each transition is rendered offline and measured.
+        let dir = tracks::find_default_music().unwrap_or_else(|| std::path::PathBuf::from("music"));
+        let prog = std::sync::Arc::new(Mutex::new(tracks::Progress::default()));
+        tracks::start_scan(dir, prog.clone());
+        while !prog.lock().unwrap().finished {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        let mut tv = prog.lock().unwrap().result.take().unwrap_or_default();
+        tracks::finalize(&mut tv);
+        let lib = if args.iter().any(|a| a == "--demo") { Rc::new(build_demo()) } else { Rc::new(tv) };
+        if args.iter().any(|a| a == "--classic") {
+            app::CLASSIC_AUTOMIX.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        let srf = SR as f64;
+        let win = SR as usize / 2;
+        let rmsw = |v: &[f32]| -> Vec<f32> { v.chunks(win).map(|c| (c.iter().map(|x| x * x).sum::<f32>() / c.len() as f32).sqrt()).collect() };
+        let lowpass = |v: &[f32]| -> Vec<f32> {
+            let a = 1.0 - (-2.0 * std::f32::consts::PI * 150.0 / SR as f32).exp();
+            let mut lp = 0f32;
+            v.iter().map(|&x| { lp += a * (x - lp); lp }).collect()
+        };
+        // onset envelope at 10 ms resolution
+        let onsets = |v: &[f32]| -> Vec<f32> {
+            let h = SR as usize / 100;
+            let e: Vec<f32> = v.chunks(h).map(|c| (c.iter().map(|x| x * x).sum::<f32>() / c.len() as f32).sqrt()).collect();
+            (0..e.len()).map(|i| if i == 0 { 0.0 } else { (e[i] - e[i - 1]).max(0.0) }).collect()
+        };
+        let med = |v: &[f32]| { let mut s = v.to_vec(); s.sort_by(|a, b| a.partial_cmp(b).unwrap()); s[s.len() / 2].max(1e-6) };
+        // renders: mute 0 = mix, 1 = only outgoing, 2 = only incoming
+        let run = |i: usize, j: usize, mute: u8| -> Option<(Vec<f32>, f64, f32, Style, String, f64, f64)> {
+            let mixer = Arc::new(Mutex::new(Mixer::new()));
+            mixer.lock().unwrap().set_sr(SR as f32);
+            let mut app = App::new(lib.clone(), mixer.clone(), false);
+            {
+                let ta = &lib[i];
+                let mut m = mixer.lock().unwrap();
+                m.reset();
+                m.set_sr(SR as f32);
+                let d = &mut m.decks[0];
+                d.pcm = Some(ta.audio());
+                d.track = Some(i);
+                d.pos = ta.samples() as f64 * 0.5;
+                d.rate = 1.0;
+                d.target_rate = 1.0;
+                d.bpm = ta.a.bpm;
+                d.origin = ta.a.origin;
+                d.norm = ta.a.gain;
+                d.playing = true;
+                m.active = 0;
+            }
+            app.current = i;
+            app.queue = vec![dj::QItem { track: j, pinned: true, manual: true, reason: String::new() }];
+            app.plan(false);
+            let armed = app.armed.as_ref()?;
+            let (trigger, style, why) = (armed.trigger, armed.style, armed.why.clone());
+            let mut m = mixer.lock().unwrap();
+            let dur = m.pending.map(|p| p.dur_secs).unwrap_or(6.0);
+            let start = (trigger - 4.0 * srf).max(0.0);
+            m.decks[0].pos = start;
+            if mute == 2 {
+                m.decks[0].norm = 0.0;
+            }
+            if mute == 1 {
+                m.decks[1].norm = 0.0;
+            }
+            let secs = 4.0 + dur as f64 + 6.0;
+            let mut buf = vec![0f32; (secs * srf) as usize * 2];
+            m.render(&mut buf, 2);
+            let a_left = (lib[i].samples() as f64 - trigger) / srf;
+            Some((buf.chunks(2).map(|f| f[0]).collect(), trigger, dur, style, why, a_left, (trigger - start) / srf))
+        };
+        let reference = |i: usize| -> f32 {
+            let t = &lib[i];
+            let mut m = Mixer::new();
+            m.set_sr(SR as f32);
+            m.decks[0].pcm = Some(t.audio());
+            m.decks[0].pos = t.samples() as f64 * 0.5;
+            m.decks[0].bpm = t.a.bpm;
+            m.decks[0].norm = t.a.gain;
+            m.decks[0].playing = true;
+            let mut buf = vec![0f32; SR as usize * 6 * 2];
+            m.render(&mut buf, 2);
+            med(&rmsw(&buf.chunks(2).map(|f| f[0]).collect::<Vec<_>>()))
+        };
+        let mut text = String::new();
+        let (mut n, mut sag_sum, mut bad_sag, mut bov_sum, mut beat_n, mut beat_ok, mut fades) = (0f32, 0f32, 0, 0f32, 0, 0, 0);
+        let count = lib.len().min(40);
+        for i in 0..count.saturating_sub(1) {
+            let j = i + 1;
+            let (Some(full), Some(a_only), Some(b_only)) = (run(i, j, 0), run(i, j, 1), run(i, j, 2)) else { continue };
+            let (mix, _trig, dur, style, why, a_left, lead) = full;
+            let r = (reference(i) * reference(j)).sqrt();
+            // short-term loudness: power averaged over 3 s, like a loudness meter
+            let rt0 = rmsw(&mix);
+            let rt: Vec<f32> = (0..rt0.len()).map(|k| { let (a, b) = (k.saturating_sub(3), (k + 3).min(rt0.len())); (rt0[a..b].iter().map(|x| x * x).sum::<f32>() / (b - a) as f32).sqrt() }).collect();
+            let k0 = (lead * 2.0) as usize;
+            let k1 = ((lead + dur as f64 + 3.0) * 2.0) as usize;
+            let seg = &rt[k0.min(rt.len() - 1)..k1.min(rt.len())];
+            let sag = 20.0 * (seg.iter().cloned().fold(f32::MAX, f32::min) / r).log10();
+            if args.iter().any(|a| a == "--dump") {
+                text.push_str(&format!("  loudness every 0.5 s (dB vs typical, transition starts at {:.0} s): {}
+", lead, rt.iter().map(|v| format!("{:.0}", 20.0 * (v / r).max(1e-6).log10())).collect::<Vec<_>>().join(" ")));
+            }
+            let (la, lb) = (rmsw(&lowpass(&a_only.0)), rmsw(&lowpass(&b_only.0)));
+            let mut bov = 0f32;
+            let ke = ((lead + dur as f64) * 2.0) as usize;
+            for k in k0..ke.min(la.len()) {
+                bov += la[k].min(lb[k]) / la[k].max(lb[k]).max(1e-6);
+            }
+            bov /= (ke - k0).max(1) as f32;
+            // beat alignment over the overlap: best cross-correlation lag between the two decks
+            let mut offs = String::from("-");
+            if style != Style::Fade && style != Style::Plain {
+                let (oa, ob) = (onsets(&a_only.0), onsets(&b_only.0));
+                let (s0, s1) = ((lead * 100.0) as usize, ((lead + dur as f64) * 100.0) as usize);
+                let s1 = s1.min(oa.len()).min(ob.len());
+                if s1 > s0 + 100 {
+                    let mut best = (f32::MIN, 0i32);
+                    for lag in -25i32..=25 {
+                        let mut s = 0f32;
+                        for k in s0..s1 {
+                            let k2 = k as i32 + lag;
+                            if k2 >= 0 && (k2 as usize) < ob.len() {
+                                s += oa[k] * ob[k2 as usize];
+                            }
+                        }
+                        if s > best.0 {
+                            best = (s, lag);
+                        }
+                    }
+                    beat_n += 1;
+                    if best.1.abs() <= 2 {
+                        beat_ok += 1;
+                    }
+                    offs = format!("{} ms", best.1 * 10);
+                }
+            } else {
+                fades += 1;
+            }
+            n += 1.0;
+            sag_sum += sag;
+            if sag < -6.0 {
+                bad_sag += 1;
+            }
+            bov_sum += bov;
+            text.push_str(&format!("{} -> {} | {} | {:.1}s overlap, {:.0}s before A ends | deepest sag {:+.1} dB | bass overlap {:.0}% | beat offset {} | {}\n", lib[i].title, lib[j].title, style.name(), dur, a_left, sag, bov * 100.0, offs, why));
+        }
+        text.push_str(&format!("SUMMARY {} transitions: {} plain fades; average deepest sag {:+.1} dB; sags worse than -6 dB: {}; bass overlap {:.0}%; beat-matched with beats within 20 ms: {}/{}\n", n, fades, sag_sum / n, bad_sag, 100.0 * bov_sum / n, beat_ok, beat_n));
+        let _ = std::fs::write(out, text);
+        std::process::exit(0);
+    }
+    if let Some(out) = arg("--mix-eval") {
+        // Renders real transitions between songs with no shared beat and measures them.
+        // Each song's own contribution is rendered separately, so we can see how much their
+        // bass overlaps (0% = clean swap, 100% = two basslines at full strength together).
+        let dir = tracks::find_default_music().unwrap_or_else(|| std::path::PathBuf::from("music"));
+        let prog = std::sync::Arc::new(Mutex::new(tracks::Progress::default()));
+        tracks::start_scan(dir, prog.clone());
+        while !prog.lock().unwrap().finished {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        let tv = prog.lock().unwrap().result.take().unwrap_or_default();
+        let weak: Vec<&tracks::Track> = tv.iter().filter(|t| t.a.beat_conf < 1.5 || t.a.bpm < 1.0).collect();
+        let styles = [Style::Plain, Style::Fade];
+        let mut text = String::new();
+        let mut tot = [[0f32; 4]; 2];
+        let mut ctrl = [0f32; 3];
+        let mut n = 0f32;
+        let win = SR as usize / 4;
+        let rmsw = |v: &[f32]| -> Vec<f32> { v.chunks(win).map(|c| (c.iter().map(|x| x * x).sum::<f32>() / c.len() as f32).sqrt()).collect() };
+        let lowpass = |v: &[f32]| -> Vec<f32> {
+            let a = 1.0 - (-2.0 * std::f32::consts::PI * 150.0 / SR as f32).exp();
+            let mut lp = 0f32;
+            v.iter().map(|&x| { lp += a * (x - lp); lp }).collect()
+        };
+        let med = |v: &[f32]| { let mut s = v.to_vec(); s.sort_by(|a, b| a.partial_cmp(b).unwrap()); s[s.len() / 2].max(1e-6) };
+        for pair in weak.chunks(2).filter(|p| p.len() == 2).take(14) {
+            let (ta, tb) = (pair[0], pair[1]);
+            n += 1.0;
+            // mute: 0 = both audible, 1 = only A, 2 = only B, 3 = control (A alone, no transition)
+            let render = |style: Style, mute: u8| -> Vec<f32> {
+                let mut m = Mixer::new();
+                m.set_sr(SR as f32);
+                let sr = SR as f64;
+                let p0 = ta.samples() as f64 * 0.4;
+                m.decks[0].pcm = Some(ta.audio());
+                m.decks[0].track = Some(0);
+                m.decks[0].pos = p0;
+                m.decks[0].bpm = ta.a.bpm;
+                m.decks[0].origin = ta.a.origin;
+                m.decks[0].norm = if mute == 2 { 0.0 } else { ta.a.gain };
+                m.decks[0].playing = true;
+                m.decks[1].pcm = Some(tb.audio());
+                m.decks[1].track = Some(1);
+                m.decks[1].bpm = tb.a.bpm;
+                m.decks[1].origin = tb.a.origin;
+                m.decks[1].norm = if mute == 1 { 0.0 } else { tb.a.gain };
+                if mute != 3 {
+                    m.pending = Some(engine::Pending { deck_in: 1, trigger: p0 + 5.0 * sr, start_pos: tb.samples() as f64 * 0.2, in_rate: 1.0, dur_secs: 6.0, style, out_bpm_eff: ta.a.bpm });
+                }
+                let mut buf = vec![0f32; SR as usize * 17 * 2];
+                m.render(&mut buf, 2);
+                buf.chunks(2).map(|f| f[0]).collect()
+            };
+            // windows are 0.25 s: A alone 1..5 s, transition 5..11 s (windows 20..44), B alone 12..17 s
+            let c = render(Style::Fade, 3);
+            let (ct, cl) = (rmsw(&c), rmsw(&lowpass(&c)));
+            let (c_ref_t, c_ref_l) = (((med(&ct[4..20]) * med(&ct[48..68])).sqrt()), med(&cl[4..20]).max(med(&cl[48..68])));
+            ctrl[0] += 20.0 * (cl[20..44].iter().cloned().fold(0.0, f32::max) / c_ref_l).log10();
+            ctrl[1] += 20.0 * (ct[20..44].iter().cloned().fold(f32::MAX, f32::min) / c_ref_t).log10();
+            ctrl[2] += 20.0 * (ct[20..44].iter().cloned().fold(0.0, f32::max) / c_ref_t).log10();
+            for (si, &style) in styles.iter().enumerate() {
+                let full = render(style, 0);
+                let (a_only, b_only) = (render(style, 1), render(style, 2));
+                let (ft, fl) = (rmsw(&full), rmsw(&lowpass(&full)));
+                let (la, lb) = (rmsw(&lowpass(&a_only)), rmsw(&lowpass(&b_only)));
+                let (ma, mb) = (rmsw(&a_only), rmsw(&b_only));
+                // bass overlap: how much of the louder bassline is joined by the other at the same time
+                let mut ov = 0f32;
+                let mut ovm = 0f32;
+                for k in 20..44 {
+                    ov += la[k].min(lb[k]) / la[k].max(lb[k]).max(1e-6);
+                    ovm += ma[k].min(mb[k]) / ma[k].max(mb[k]).max(1e-6);
+                }
+                ov /= 24.0;
+                ovm /= 24.0;
+                let ref_t = (med(&ft[4..20]) * med(&ft[48..68])).sqrt();
+                let _ = fl;
+                let dip = 20.0 * (ft[20..44].iter().cloned().fold(f32::MAX, f32::min) / ref_t).log10();
+                let bump = 20.0 * (ft[20..44].iter().cloned().fold(0.0, f32::max) / ref_t).log10();
+                tot[si][0] += ov;
+                tot[si][1] += dip;
+                tot[si][2] += bump;
+                tot[si][3] += ovm;
+                text.push_str(&format!("{} -> {} | {:?}: bass overlap {:.0}%, full-band overlap {:.0}%, dip {:+.1} dB, bump {:+.1} dB\n", ta.title, tb.title, style, ov * 100.0, ovm * 100.0, dip, bump));
+            }
+        }
+        for (si, name) in ["Plain (old)", "Fade (new)"].iter().enumerate() {
+            text.push_str(&format!("AVERAGE {}: bass overlap {:.0}%, full-band overlap {:.0}%, dip {:+.1} dB (control {:+.1}), bump {:+.1} dB (control {:+.1}) over {} pairs\n", name, 100.0 * tot[si][0] / n, 100.0 * tot[si][3] / n, tot[si][1] / n, ctrl[1] / n, tot[si][2] / n, ctrl[2] / n, n));
+        }
+        let _ = std::fs::write(out, text);
+        std::process::exit(0);
+    }
+    if let Some(out) = arg("--beat-eval") {
+        // Ground-truth-free check: tempo found on the first half must match the second half.
+        let dir = tracks::find_default_music().unwrap_or_else(|| std::path::PathBuf::from("music"));
+        let prog = std::sync::Arc::new(Mutex::new(tracks::Progress::default()));
+        tracks::start_scan(dir, prog.clone());
+        while !prog.lock().unwrap().finished {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        let tv = prog.lock().unwrap().result.take().unwrap_or_default();
+        let agree = |a: f32, b: f32| {
+            let r = a / b;
+            (r > 0.985 && r < 1.015) as u8
+        };
+        let (mut old_ok, mut new_ok, mut n) = (0, 0, 0);
+        let mut rows = String::new();
+        for t in tv.iter() {
+            let pcm = t.audio();
+            let h = pcm.len() / 2;
+            let (a0, b0) = (tracks::detect_beats_with(&pcm[..h], false).0, tracks::detect_beats_with(&pcm[h..], false).0);
+            let (a1, b1) = (tracks::detect_beats_with(&pcm[..h], true).0, tracks::detect_beats_with(&pcm[h..], true).0);
+            n += 1;
+            old_ok += agree(a0, b0) as i32;
+            new_ok += agree(a1, b1) as i32;
+            rows.push_str(&format!("{} | old {:.1}/{:.1} | new {:.1}/{:.1}\n", t.title, a0, b0, a1, b1));
+        }
+        rows.push_str(&format!("SUMMARY halves agree: old {}/{}  new {}/{}\n", old_ok, n, new_ok, n));
+        let _ = std::fs::write(out, rows);
+        std::process::exit(0);
+    }
     if let Some(out) = arg("--scan-report") {
         let dir = tracks::find_default_music().unwrap_or_else(|| std::path::PathBuf::from("music"));
         let prog = std::sync::Arc::new(Mutex::new(tracks::Progress::default()));
@@ -135,9 +426,22 @@ async fn main() {
     ui::init_fonts();
     let lib = Rc::new(build_demo());
     let mixer = Arc::new(Mutex::new(Mixer::new()));
-    let stream = if headless { None } else { start_audio(mixer.clone()) };
-    let device = stream.is_some();
+    let mut stream: Option<cpal::Stream> = None;
+    let mut want_dev: Option<String> = None;
+    let mut out_name = String::new();
+    if !headless {
+        if let Some((s, n)) = start_audio(mixer.clone(), None) {
+            stream = Some(s);
+            out_name = n;
+        }
+    }
+
     let mut app = App::new(lib.clone(), mixer.clone(), !headless);
+    if !headless {
+        app.out_devices = list_outputs();
+        app.out_name = out_name;
+    }
+    let mut dev_poll = 0.0f32;
     if !headless && tracks::CHOSEN_DIR.lock().unwrap().is_some() {
         app.begin_scan();
     }
@@ -153,6 +457,38 @@ async fn main() {
     loop {
         frame += 1;
         let dt = get_frame_time().min(0.1);
+        if !headless {
+            dev_poll += dt;
+            let failed = AUDIO_FAILED.load(std::sync::atomic::Ordering::Relaxed);
+            if dev_poll > 3.0 {
+                dev_poll = 0.0;
+                app.out_devices = list_outputs();
+            }
+            // switch request from the UI, or reopen after the device vanished/errored
+            let req = app.out_request.take();
+            if req.is_some() || failed || (stream.is_none() && dev_poll == 0.0) {
+                if let Some(r) = req {
+                    want_dev = r;
+                }
+                stream = None; // drop the old stream first
+                let mut res = start_audio(mixer.clone(), want_dev.as_deref());
+                if res.is_none() && want_dev.is_some() {
+                    want_dev = None;
+                    res = start_audio(mixer.clone(), None);
+                }
+                match res {
+                    Some((s, n)) => {
+                        stream = Some(s);
+                        app.out_name = n.clone();
+                        app.say(&format!("Audio output: {}", n));
+                    }
+                    None => {
+                        app.out_name.clear();
+                    }
+                }
+            }
+        }
+        let device = stream.is_some();
         let audio = if headless {
             Some(0.25)
         } else if device {
@@ -199,7 +535,7 @@ async fn main() {
                 steps.push(Step {
                     name: "analysis",
                     passed: n > 0 && ok * 10 >= n * 7 && kok * 10 >= n * 6,
-                    detail: format!("tempo within 1% for {}/{} tracks; key within one Camelot step for {}/{}; beat confidence: {}", ok, n, kok, n, lib.iter().map(|t| format!("{:.1}", t.a.beat_conf)).collect::<Vec<_>>().join(" ")),
+                    detail: format!("tempo within 1% for {}/{} tracks (missed: {}); key within one Camelot step for {}/{}; beat confidence: {}", ok, n, lib.iter().filter(|t| t.true_bpm.map_or(false, |tb| (t.a.bpm - tb).abs() / tb >= 0.01)).map(|t| format!("{} true {:.1} got {:.1}", t.title, t.true_bpm.unwrap(), t.a.bpm)).collect::<Vec<_>>().join("; "), kok, n, lib.iter().map(|t| format!("{:.1}", t.a.beat_conf)).collect::<Vec<_>>().join(" ")),
                 });
                 steps.push(Step { name: "queue", passed: app.queue.len() >= 3, detail: format!("DJ filled the queue with {} tracks before playback", app.queue.len()) });
                 {
@@ -210,7 +546,7 @@ async fn main() {
                     let sa = std::sync::Arc::new(stems::separate(&ta.pcm, &prog));
                     let sb = std::sync::Arc::new(stems::separate(&tb.pcm, &prog));
                     let secs = t0.elapsed().as_secs_f32();
-                    let n = ta.pcm.len();
+                    let n = ta.samples();
                     let (mut err, mut tot) = (0f64, 0f64);
                     for i in (n / 4..n * 3 / 4).step_by(7) {
                         let sum: f32 = (0..4).map(|k| sa.data[k][i]).sum();
@@ -234,7 +570,7 @@ async fn main() {
                     let bar = 4.0 * SR as f64 * 60.0 / ta.a.bpm as f64;
                     let bar_b = 4.0 * SR as f64 * 60.0 / tb.a.bpm as f64;
                     let p0 = ta.a.origin + 8.0 * bar;
-                    m.decks[0].pcm = Some(ta.pcm.clone());
+                    m.decks[0].pcm = Some(ta.audio());
                     m.decks[0].stems = Some(sa.clone());
                     m.decks[0].track = Some(0);
                     m.decks[0].pos = p0;
@@ -242,7 +578,7 @@ async fn main() {
                     m.decks[0].origin = ta.a.origin;
                     m.decks[0].norm = ta.a.gain;
                     m.decks[0].playing = true;
-                    m.decks[1].pcm = Some(tb.pcm.clone());
+                    m.decks[1].pcm = Some(tb.audio());
                     m.decks[1].stems = Some(sb.clone());
                     m.decks[1].track = Some(1);
                     m.decks[1].bpm = tb.a.bpm;
@@ -283,14 +619,14 @@ async fn main() {
                     let bar = 4.0 * SR as f64 * 60.0 / ta.a.bpm as f64;
                     let bar_b = 4.0 * SR as f64 * 60.0 / tb.a.bpm as f64;
                     let p0 = ta.a.origin + 8.0 * bar;
-                    m.decks[0].pcm = Some(ta.pcm.clone());
+                    m.decks[0].pcm = Some(ta.audio());
                     m.decks[0].track = Some(0);
                     m.decks[0].pos = p0;
                     m.decks[0].bpm = ta.a.bpm;
                     m.decks[0].origin = ta.a.origin;
                     m.decks[0].norm = ta.a.gain;
                     m.decks[0].playing = true;
-                    m.decks[1].pcm = Some(tb.pcm.clone());
+                    m.decks[1].pcm = Some(tb.audio());
                     m.decks[1].track = Some(1);
                     m.decks[1].bpm = tb.a.bpm;
                     m.decks[1].origin = tb.a.origin;
@@ -330,7 +666,7 @@ async fn main() {
                     let t0 = &lib[0];
                     let mut m = Mixer::new();
                     m.set_sr(SR as f32);
-                    m.decks[0].pcm = Some(t0.pcm.clone());
+                    m.decks[0].pcm = Some(t0.audio());
                     m.decks[0].track = Some(0);
                     m.decks[0].pos = t0.a.origin;
                     m.decks[0].rate = 1.06;
@@ -345,7 +681,7 @@ async fn main() {
                     let want = t0.a.bpm * 1.06;
                     let mut m1 = Mixer::new();
                     m1.set_sr(SR as f32);
-                    m1.decks[0].pcm = Some(t0.pcm.clone());
+                    m1.decks[0].pcm = Some(t0.audio());
                     m1.decks[0].pos = t0.a.origin;
                     m1.decks[0].bpm = t0.a.bpm;
                     m1.decks[0].playing = true;
@@ -374,7 +710,7 @@ async fn main() {
                     let (a, b) = (&lib[0], &lib[1]);
                     let c = dj::choose_mix(a, b, 0.0, 1.0, 16, false, dj::MixOpts::default());
                     let (pass, det) = match c {
-                        Some(c) => (c.out_pos > 0.0 && c.out_pos < a.pcm.len() as f64 && c.in_pos < b.pcm.len() as f64, c.why),
+                        Some(c) => (c.out_pos > 0.0 && c.out_pos < a.samples() as f64 && c.in_pos < b.samples() as f64, c.why),
                         None => (false, "no mix points found".to_string()),
                     };
                     steps.push(Step { name: "automix_points", passed: pass, detail: det });
@@ -447,9 +783,18 @@ async fn main() {
                     wav.extend_from_slice(&((s.clamp(-1.0, 1.0) * 32000.0) as i16).to_le_bytes());
                 }
                 let _ = std::fs::write(dir.join("test song.wav"), wav);
+                // keep the user's saved music folder: the test must not overwrite or delete it
+                let saved = std::fs::read("music_folder.txt").ok();
                 tracks::set_music_dir(dir.clone());
                 app.begin_scan();
-                let _ = std::fs::remove_file("music_folder.txt");
+                match saved {
+                    Some(bytes) => {
+                        let _ = std::fs::write("music_folder.txt", bytes);
+                    }
+                    None => {
+                        let _ = std::fs::remove_file("music_folder.txt");
+                    }
+                }
             }
             if frame == 320 {
                 let n = app.lib.iter().filter(|t| t.user).count();

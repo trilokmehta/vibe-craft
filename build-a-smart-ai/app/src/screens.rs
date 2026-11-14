@@ -92,7 +92,7 @@ impl App {
             self.wave_interact(wx, y + 160.0, ww, 70.0, n, 1);
             let tol_n = 2.0 * SR as f64 * 60.0 / tn.a.bpm as f64 * 4.0;
             if let Some(i) = self.point_chips(wx, y + 238.0, ww, "Entry points", &next_pts, Some(in_at), tol_n, an) {
-                let end = (tn.a.origin + tn.a.last_bar as f64 * tol_n / 2.0).min(tn.pcm.len() as f64);
+                let end = (tn.a.origin + tn.a.last_bar as f64 * tol_n / 2.0).min(tn.samples() as f64);
                 self.set_section(n, next_pts[i].pos, end);
             }
             if self.sections.get(n).copied().flatten().is_some() && self.button(wx + ww - 130.0, y + 206.0, 124.0, 22.0, "Clear section", false, an) {
@@ -237,10 +237,11 @@ impl App {
         let lib = self.lib.clone();
         if let Some(q) = self.queue.first() {
             let t = &lib[q.track];
+            let audio = t.audio(); // decode before taking the audio lock
             let mixer = self.mixer.clone();
             let mut m = mixer.lock().unwrap();
             let dk = &mut m.decks[d];
-            dk.pcm = Some(t.pcm.clone());
+            dk.pcm = Some(audio);
             dk.track = Some(q.track);
             dk.pos = t.a.origin;
             dk.rate = 1.0;
@@ -631,7 +632,7 @@ impl App {
 impl App {
     fn section_overlay(&self, x: f32, y: f32, w: f32, h: f32, tid: usize, c: Color) {
         if let Some(Some((a, b))) = self.sections.get(tid) {
-            let len = self.lib[tid].pcm.len() as f64;
+            let len = self.lib[tid].samples() as f64;
             let x0 = x + (*a / len) as f32 * w;
             let x1 = x + (*b / len) as f32 * w;
             // dim everything outside the section
@@ -646,7 +647,7 @@ impl App {
     /// Drag = choose a section, click on the playing song = jump there,
     /// click on the next song = start it from that point.
     fn wave_interact(&mut self, x: f32, y: f32, w: f32, h: f32, tid: usize, which: u8) {
-        let len = self.lib[tid].pcm.len() as f64;
+        let len = self.lib[tid].samples() as f64;
         let hv = self.hov(x, y - 4.0, w, h + 8.0);
         if self.click && hv {
             self.drag = Some((self.mx, which));

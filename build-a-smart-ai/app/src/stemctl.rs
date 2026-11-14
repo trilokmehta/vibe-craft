@@ -59,7 +59,7 @@ impl App {
                     continue;
                 }
                 let job = Arc::new(StemJob { pct: AtomicU32::new(0), done: AtomicBool::new(false), result: Mutex::new(None) });
-                let pcm = self.lib[tid].pcm.clone();
+                let pcm = self.lib[tid].audio();
                 let j2 = job.clone();
                 std::thread::spawn(move || {
                     let s = crate::stems::separate(&pcm, &j2.pct);

@@ -595,8 +595,8 @@ pub fn choose_mix(ta: &Track, tin: &Track, pos: f64, rate: f64, beats: u32, calm
     let bb = bar_len(tin);
     let trans_bars = (beats as f64 / 4.0).ceil().max(1.0);
     let earliest = pos + 3.0 * sr * rate;
-    let len_a = ta.pcm.len() as f64;
-    let len_b = tin.pcm.len() as f64;
+    let len_a = ta.samples() as f64;
+    let len_b = tin.samples() as f64;
     let a_end = (ta.a.origin + ta.a.last_bar as f64 * ba).min(len_a);
     let b_end = (tin.a.origin + tin.a.last_bar as f64 * bb).min(len_b);
     let min_pos = (40.0f64).min(0.5 * ta.dur as f64) * sr;
@@ -657,4 +657,85 @@ pub fn choose_mix(ta: &Track, tin: &Track, pos: f64, rate: f64, beats: u32, calm
         in_pos: n.pos,
         why: format!("leaves {} at {} ({}), enters {} at {} ({})", ta.title, clock(o.pos), o.kind, tin.title, clock(n.pos), n.kind),
     })
+}
+
+// ------------------------------------------------- AutoMix energy + alignment helpers
+
+fn body_level(t: &Track) -> f32 {
+    let mut v: Vec<f32> = t.a.bars.iter().map(|b| b[0]).filter(|&x| x > 1e-4).collect();
+    if v.is_empty() {
+        return 0.0;
+    }
+    v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    v[(v.len() as f32 * 0.6) as usize % v.len()]
+}
+
+/// Sample position where the song's loud content ends (before any fade-out or quiet tail).
+/// A transition should be finished by here, or the music sags into dead air.
+pub fn loud_end(t: &Track) -> f64 {
+    let body = body_level(t);
+    let bar = bar_len(t);
+    let mut k = t.a.bars.len();
+    while k > 0 && t.a.bars[k - 1][0] < 0.5 * body {
+        k -= 1;
+    }
+    (t.a.origin + k as f64 * bar).min(t.samples() as f64)
+}
+
+/// Seconds from `from` until the song reaches its normal loudness (length of a quiet intro).
+pub fn quiet_intro_secs(t: &Track, from: f64) -> f32 {
+    let body = body_level(t);
+    let bar = bar_len(t);
+    for (i, b) in t.a.bars.iter().enumerate() {
+        let p = t.a.origin + i as f64 * bar;
+        if p + bar <= from {
+            continue;
+        }
+        if b[0] >= 0.5 * body {
+            return ((p - from).max(0.0) / crate::tracks::SR as f64) as f32;
+        }
+    }
+    0.0
+}
+
+/// Onset envelope of `pcm` read from `start` at playback `rate`, on a 5 ms output-time grid.
+fn onset_track(pcm: &[f32], start: f64, rate: f64, steps: usize) -> Vec<f32> {
+    let h = crate::tracks::SR as f64 / 200.0;
+    let mut e = Vec::with_capacity(steps);
+    for k in 0..steps {
+        let a = (start + k as f64 * h * rate) as usize;
+        let b = ((start + (k + 1) as f64 * h * rate) as usize).min(pcm.len());
+        if a >= b {
+            e.push(0.0);
+            continue;
+        }
+        let s: f32 = pcm[a..b].iter().map(|x| x * x).sum::<f32>() / (b - a) as f32;
+        e.push(s.sqrt());
+    }
+    (0..e.len()).map(|i| if i == 0 { 0.0 } else { (e[i] - e[i - 1]).max(0.0) }).collect()
+}
+
+/// Nudges the incoming entry point so its drum hits land on the outgoing song's hits
+/// over the first seconds of the overlap (cross-correlation within half a beat).
+pub fn align_entry(a: &[f32], a_pos: f64, a_rate: f64, b: &[f32], b_pos: f64, b_rate: f64, beat_secs: f64, window_secs: f64) -> f64 {
+    let steps = (window_secs * 200.0) as usize;
+    let max_lag = ((beat_secs * 0.5) * 200.0) as i64;
+    let oa = onset_track(a, a_pos, a_rate, steps);
+    let ob = onset_track(b, (b_pos - max_lag as f64 * crate::tracks::SR as f64 / 200.0 * b_rate).max(0.0), b_rate, steps + 2 * max_lag as usize);
+    // ob[k + max_lag] is aligned with oa[k] at lag 0
+    let mut best = (f32::MIN, 0i64);
+    for lag in -max_lag..=max_lag {
+        let mut s = 0f32;
+        for k in 0..steps {
+            let j = k as i64 + max_lag + lag;
+            if j >= 0 && (j as usize) < ob.len() {
+                s += oa[k] * ob[j as usize];
+            }
+        }
+        if s > best.0 {
+            best = (s, lag);
+        }
+    }
+    // a hit of B that shows up `lag` steps late means B must start that much further in
+    (b_pos + best.1 as f64 * crate::tracks::SR as f64 / 200.0 * b_rate).max(0.0)
 }

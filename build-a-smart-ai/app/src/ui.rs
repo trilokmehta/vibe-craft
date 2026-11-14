@@ -258,7 +258,7 @@ impl App {
             let bh = (v * h * 0.9).max(1.0);
             draw_rectangle(x + i as f32 * w / n as f32, y + (h - bh) / 2.0, (w / n as f32 - 1.0).max(1.0), bh, Color::new(tint.r, tint.g, tint.b, 0.75));
         }
-        let len = t.pcm.len() as f64;
+        let len = t.samples() as f64;
         for (m, c) in marks {
             let mx = x + (*m / len).clamp(0.0, 1.0) as f32 * w;
             draw_line(mx, y, mx, y + h, 2.0, *c);
@@ -486,6 +486,43 @@ impl App {
             draw_text("Vol", w - 24.0 - bw - 170.0, cy + 5.0, 16.0, Color::new(1.0, 1.0, 1.0, 0.6));
             if self.slider(w - 24.0 - bw - 140.0, cy, 110.0, &mut v, accent) {
                 self.mixer.lock().unwrap().master = v;
+            }
+        }
+        if !narrow && !self.out_devices.is_empty() {
+            let dw = 150.0;
+            let dx = w - 24.0 - bw - 180.0 - dw;
+            let label = fit(&format!("Out: {}", if self.out_name.is_empty() { "none" } else { &self.out_name }), 14.0, dw - 16.0);
+            if self.button(dx, cy - 15.0, dw, 30.0, &label, self.out_menu, accent) {
+                self.out_menu = !self.out_menu;
+            }
+            if self.out_menu {
+                let rh = 28.0;
+                let mw = 300.0f32;
+                let mx = (dx + dw - mw).max(8.0);
+                let rows: Vec<(String, Option<String>)> = std::iter::once(("System default".to_string(), None))
+                    .chain(self.out_devices.iter().map(|n| (n.clone(), Some(n.clone()))))
+                    .collect();
+                let my = fy - 8.0 - rh * rows.len() as f32;
+                rrect(mx - 4.0, my - 4.0, mw + 8.0, rh * rows.len() as f32 + 8.0, 8.0, Color::new(0.08, 0.08, 0.1, 0.97));
+                let mut picked: Option<Option<String>> = None;
+                for (i, (lbl, val)) in rows.iter().enumerate() {
+                    let ry = my + rh * i as f32;
+                    let hv = self.hov(mx, ry, mw, rh);
+                    let cur = val.as_deref() == Some(self.out_name.as_str());
+                    if hv {
+                        rrect(mx, ry, mw, rh, 6.0, Color::new(1.0, 1.0, 1.0, 0.1));
+                    }
+                    draw_text(&fit(lbl, 15.0, mw - 16.0), mx + 8.0, ry + 19.0, 15.0, if cur { accent } else { WHITE });
+                    if hv && self.click {
+                        picked = Some(val.clone());
+                    }
+                }
+                if let Some(p) = picked {
+                    self.out_request = Some(p);
+                    self.out_menu = false;
+                } else if self.click && !self.hov(dx, cy - 15.0, dw, 30.0) {
+                    self.out_menu = false;
+                }
             }
         }
         if self.toast_t > 0.0 {

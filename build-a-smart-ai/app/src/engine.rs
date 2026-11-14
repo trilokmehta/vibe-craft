@@ -12,6 +12,8 @@ pub enum Style {
     FilterEcho,
     EchoOut,
     Fade,
+    /// The original plain equal-power crossfade (kept as a baseline for `--mix-eval`).
+    Plain,
 }
 
 impl Style {
@@ -20,7 +22,8 @@ impl Style {
             Style::Blend => "Beat-matched blend + bass swap",
             Style::FilterEcho => "Filter sweep + echo",
             Style::EchoOut => "Echo out, cut in on the one",
-            Style::Fade => "Smooth crossfade",
+            Style::Fade => "Smart crossfade: bass swap, vocals hand off",
+            Style::Plain => "Plain crossfade",
         }
     }
 }
@@ -101,9 +104,26 @@ pub fn trans_params(style: Style, x: f32) -> (TP, TP) {
             i.gain = if x < 0.45 { 0.0 } else { sm(0.45, 0.5, x) };
             o.stem = [1.0 - sm(0.05, 0.3, x), 1.0, 1.0, 1.0];
         }
-        Style::Fade => {
+        Style::Plain => {
             o.gain = (x * PI / 2.0).cos();
             i.gain = (x * PI / 2.0).sin();
+        }
+        Style::Fade => {
+            // Songs without a shared beat: never let two basslines or two singers overlap,
+            // and add a little gain in the middle to make up for what the EQ takes away.
+            let t = sm(0.0, 1.0, x);
+            let comp = 1.0 + 0.15 * (x * PI).sin();
+            o.gain = (t * PI / 2.0).cos() * comp;
+            i.gain = (t * PI / 2.0).sin() * comp;
+            let s = sm(0.4, 0.6, x);
+            o.low = (s * PI / 2.0).cos();
+            i.low = (s * PI / 2.0).sin();
+            o.high = 1.0 - 0.35 * sm(0.4, 1.0, x);
+            i.high = 0.75 + 0.25 * sm(0.0, 0.5, x);
+            o.filt = 1.0 - 0.3 * sm(0.4, 1.0, x);
+            // with layers: vocals leave early and enter late, drums never clash
+            o.stem = [1.0 - sm(0.12, 0.42, x), 1.0, 1.0 - sm(0.38, 0.58, x), 1.0 - sm(0.25, 0.55, x)];
+            i.stem = [sm(0.6, 0.9, x), 1.0, sm(0.38, 0.58, x), sm(0.45, 0.75, x)];
         }
     }
     (o, i)

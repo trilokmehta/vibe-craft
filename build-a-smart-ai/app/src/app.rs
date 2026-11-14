@@ -81,6 +81,9 @@ fn next_boundary(origin: f64, step: f64, min: f64) -> f64 {
     origin + k * step
 }
 
+/// When set, AutoMix plans the way it did before the energy-aware planner (for A/B tests).
+pub static CLASSIC_AUTOMIX: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 pub struct App {
     pub lib: Rc<Vec<Track>>,
     pub mixer: Arc<Mutex<Mixer>>,
@@ -130,6 +133,11 @@ pub struct App {
     pub scan_failed: Vec<String>,
     pub search_focus: bool,
     pub music_dir: String,
+    /// Output devices available, the one in use, and a pending switch request.
+    pub out_devices: Vec<String>,
+    pub out_name: String,
+    pub out_request: Option<Option<String>>,
+    pub out_menu: bool,
 }
 
 impl App {
@@ -175,6 +183,10 @@ impl App {
             last_save: 0.0,
             persist,
             genres,
+            out_devices: Vec::new(),
+            out_name: String::new(),
+            out_request: None,
+            out_menu: false,
             toast: String::new(),
             toast_t: 0.0,
             time: 0.0,
@@ -202,11 +214,12 @@ impl App {
         let first = pick_next(&lib, None, None, &self.set, &self.prof, &ex0, &[]).map(|p| p.0).unwrap_or(0);
         self.current = first;
         {
+            let audio = lib[first].audio(); // decode before taking the audio lock
             let mixer = self.mixer.clone();
             let mut m = mixer.lock().unwrap();
             let t = &lib[first];
             let d = &mut m.decks[0];
-            d.pcm = Some(t.pcm.clone());
+            d.pcm = Some(audio);
             d.track = Some(first);
             d.pos = t.a.origin;
             d.rate = 1.0;
@@ -307,11 +320,17 @@ impl App {
         if let Some((_, b)) = sec_cur {
             a_end = a_end.min(b.max(pos + 2.0 * sr));
         }
+        // Finish before the outgoing song starts fading, so the music never sags into dead air.
+        let classic = CLASSIC_AUTOMIX.load(std::sync::atomic::Ordering::Relaxed);
+        let a_fade = if classic { f64::MAX } else { loud_end(ta).max(pos + 2.0 * sr) };
+        a_end = a_end.min(a_fade);
         let in_default = match sec_next {
             Some((a, _)) => a,
             None => tin.a.origin + tin.a.first_bar as f64 * 4.0 * spb_in,
         };
-        let opts = MixOpts { force_out: self.forced_out.filter(|f| f.0 == cur && f.1 > pos).map(|f| f.1), force_in: sec_next.map(|s| s.0), out_limit: sec_cur.map(|s| s.1) };
+        let intro_quiet = quiet_intro_secs(tin, in_default);
+        let out_limit = if classic { sec_cur.map(|s| s.1) } else { Some(sec_cur.map(|s| s.1).unwrap_or(f64::MAX).min(a_fade)) };
+        let opts = MixOpts { force_out: self.forced_out.filter(|f| f.0 == cur && f.1 > pos).map(|f| f.1), force_in: sec_next.map(|s| s.0), out_limit };
         let calm = self.set.mood.calm();
         let mut bi: u32 = if self.set.intensity < 0.34 {
             32
@@ -326,7 +345,8 @@ impl App {
         if force {
             bi = bi.min(8);
         }
-        let (style, beats, in_rate) = if !auto || !grid_ok {
+        // Tempos too far apart to beat-match: a long, smooth crossfade (like AutoMix), not an echo cut.
+        let (style, beats, in_rate) = if !auto || !grid_ok || (!matched && !classic) {
             (Style::Fade, 0u32, 1.0)
         } else if !matched {
             (Style::EchoOut, 8, 1.0)
@@ -341,7 +361,8 @@ impl App {
             if force {
                 3.0
             } else {
-                6.0
+                // a quiet intro plays underneath the outgoing song, so it arrives at full energy
+                if classic { 6.0 } else { (intro_quiet + 3.0).clamp(8.0, 16.0) }
             }
         } else {
             beats as f32 * 60.0 / out_eff.max(40.0)
@@ -360,7 +381,13 @@ impl App {
             };
             (t, in_default, format!("you asked for the next song: mixing in on the next bar line, entering {} from its start", tin.title))
         } else if style == Style::Fade {
-            let why = if !auto { "Auto DJ is off: simple crossfade at the end".to_string() } else { "no reliable beat grid in one of the songs: simple crossfade instead of a beat mix".to_string() };
+            let why = if !auto {
+                "Auto DJ is off: simple crossfade at the end".to_string()
+            } else if !grid_ok {
+                format!("no reliable beat grid in one of the songs: {:.0} s smart crossfade before {} fades out", dur, ta.title)
+            } else {
+                format!("tempos too far apart to beat-match: {:.0} s smart crossfade before {} fades out", dur, ta.title)
+            };
             ((a_end - l_trk - 0.2 * sr).max(pos), in_default, why)
         } else if let Some(c) = choose_mix(ta, tin, pos, rate, beats, calm, opts) {
             (c.out_pos, c.in_pos, c.why)
@@ -375,11 +402,19 @@ impl App {
             }
             (p, in_default, "mixing at the end of the song".to_string())
         };
+        let tin_audio = tin.audio(); // decode before taking the audio lock
+        // Lock the beats where the songs actually overlap: line up the drum hits there.
+        let in_pos = if !classic && matches!(style, Style::Blend | Style::FilterEcho) {
+            let a_audio = ta.audio();
+            align_entry(&a_audio, trigger, rate, &tin_audio, in_pos, in_rate, 60.0 / out_eff.max(40.0) as f64, (dur as f64).min(10.0))
+        } else {
+            in_pos
+        };
         {
             let mut m = mixer.lock().unwrap();
             let inn = 1 - act;
             let d = &mut m.decks[inn];
-            d.pcm = Some(tin.pcm.clone());
+            d.pcm = Some(tin_audio);
             d.track = Some(nt);
             d.pos = in_pos;
             d.rate = in_rate;
@@ -397,6 +432,7 @@ impl App {
             d.sg = [1.0; 4];
             m.pending = Some(Pending { deck_in: inn, trigger, start_pos: in_pos, in_rate, dur_secs: dur, style, out_bpm_eff: out_eff });
         }
+        let why = if intro_quiet >= 2.0 { format!("{}; {} has a {:.0} s quiet intro", why, tin.title, intro_quiet) } else { why };
         self.armed = Some(Armed { track: nt, trigger, style, beats, in_rate, out_eff, ks, matched, l_trk, cur, in_pos, why });
     }
 
@@ -443,7 +479,18 @@ impl App {
     pub fn toggle_pause(&mut self) {
         let mixer = self.mixer.clone();
         let mut m = mixer.lock().unwrap();
-        m.paused = !m.paused;
+        let a = m.active;
+        // A deck can stop on its own (deck button, end of a section) while master isn't
+        // paused. Treat that as paused so Play always brings the sound back.
+        let silent = !m.decks[a].playing && m.trans.is_none();
+        if m.paused || silent {
+            m.paused = false;
+            if m.decks[a].pcm.is_some() && m.decks[a].pos < m.decks[a].len() {
+                m.decks[a].playing = true;
+            }
+        } else {
+            m.paused = true;
+        }
     }
 
     fn on_done(&mut self) {
@@ -492,7 +539,7 @@ impl App {
             s.sg[d] = m.decks[d].sg;
         }
         s.trans = m.trans.map(|t| (t.elapsed as f32 / t.total as f32, t.style, t.out, t.inn));
-        s.paused = m.paused;
+        s.paused = m.paused || (!m.decks[m.active].playing && m.trans.is_none());
         s.master = m.master;
         s.xf = m.xfader;
         s.manual = m.manual;
@@ -511,6 +558,10 @@ impl App {
     pub fn update(&mut self, dt: f32, audio_secs: Option<f32>) {
         self.time += dt;
         self.poll_scan();
+        // decode the next songs in the background so they start instantly
+        for q in self.queue.iter().take(2) {
+            self.lib[q.track].prefetch();
+        }
         if let Some(secs) = audio_secs {
             let mixer = self.mixer.clone();
             let mut m = mixer.lock().unwrap();
@@ -662,7 +713,7 @@ impl App {
 impl App {
     pub fn snap_bar(&self, tid: usize, pos: f64) -> f64 {
         let t = &self.lib[tid];
-        let len = t.pcm.len() as f64;
+        let len = t.samples() as f64;
         if t.a.beat_conf < 1.5 {
             return pos.clamp(0.0, len);
         }
@@ -682,7 +733,7 @@ impl App {
         let mut b = self.snap_bar(tid, b);
         let min = 2.0 * SR as f64 * 60.0 / self.lib[tid].a.bpm as f64 * 4.0;
         if b - a < min {
-            b = (a + min).min(self.lib[tid].pcm.len() as f64);
+            b = (a + min).min(self.lib[tid].samples() as f64);
         }
         self.sections[tid] = Some((a, b));
         if tid == self.current {
