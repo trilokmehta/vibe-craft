@@ -11,6 +11,7 @@ pub struct StemJob {
     pub pct: AtomicU32,
     pub done: AtomicBool,
     pub result: Mutex<Option<Arc<Stems>>>,
+    pub profile: Mutex<Option<Arc<crate::vibe::Profile>>>,
 }
 
 impl App {
@@ -28,6 +29,17 @@ impl App {
         }
         if let Some((id, job)) = self.stem_job.clone() {
             if job.done.load(Ordering::SeqCst) {
+                if let Some(p) = job.profile.lock().unwrap().take() {
+                    self.profiles.retain(|c| c.0 != id);
+                    self.profiles.push((id, p));
+                    // Re-plan the upcoming mix now that its layers are known.
+                    if id == self.current || self.queue.first().map(|q| q.track) == Some(id) {
+                        self.dirty = true;
+                    }
+                    while self.profiles.len() > 8 {
+                        self.profiles.remove(0);
+                    }
+                }
                 if let Some(s) = job.result.lock().unwrap().take() {
                     self.stem_cache.push((id, s));
                     while self.stem_cache.len() > 4 {
@@ -58,12 +70,16 @@ impl App {
                 if self.stem_cache.iter().any(|c| c.0 == tid) {
                     continue;
                 }
-                let job = Arc::new(StemJob { pct: AtomicU32::new(0), done: AtomicBool::new(false), result: Mutex::new(None) });
+                let job = Arc::new(StemJob { pct: AtomicU32::new(0), done: AtomicBool::new(false), result: Mutex::new(None), profile: Mutex::new(None) });
                 let path = self.lib[tid].path.clone();
                 // Wait for the AI model while it downloads; songs without a file (demo) use DSP.
                 if path.is_some() && matches!(crate::sep::model_state(), crate::sep::ModelState::Downloading(_)) {
                     break;
                 }
+                let (origin, bar, nbars) = {
+                    let a = &self.lib[tid].a;
+                    (a.origin, 4.0 * crate::tracks::SR as f64 * 60.0 / a.bpm.max(40.0) as f64, a.bars.len())
+                };
                 let pcm = self.lib[tid].audio();
                 let j2 = job.clone();
                 std::thread::spawn(move || {
@@ -77,6 +93,9 @@ impl App {
                             crate::stems::separate(&pcm, &j2.pct)
                         }
                     };
+                    if s.ai {
+                        *j2.profile.lock().unwrap() = Some(Arc::new(crate::vibe::profile(&s, origin, bar, nbars)));
+                    }
                     *j2.result.lock().unwrap() = Some(Arc::new(s));
                     j2.done.store(true, Ordering::SeqCst);
                 });

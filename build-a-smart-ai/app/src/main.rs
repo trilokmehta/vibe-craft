@@ -9,6 +9,7 @@ mod ui;
 mod logo;
 mod update;
 mod sep;
+mod vibe;
 
 use app::{App, Armed};
 use engine::{Mixer, Style};
@@ -183,6 +184,19 @@ async fn main() {
                 std::process::exit(1);
             }
         }
+    }
+    if args.iter().any(|a| a == "--vibe-test") {
+        let n: usize = arg("--vibe-test").and_then(|s| s.parse().ok()).unwrap_or(3);
+        let dir = tracks::find_default_music().unwrap_or_else(|| std::path::PathBuf::from("music"));
+        let prog = std::sync::Arc::new(Mutex::new(tracks::Progress::default()));
+        tracks::start_scan(dir, prog.clone());
+        while !prog.lock().unwrap().finished {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        let mut tv = prog.lock().unwrap().result.take().unwrap_or_default();
+        tracks::finalize(&mut tv);
+        vibe::self_test(&tv, n);
+        std::process::exit(0);
     }
     if let Some(out) = arg("--automix-eval") {
         // End to end: the real AutoMix planner picks style and mix points for consecutive
@@ -827,7 +841,7 @@ async fn main() {
                     let ok = (bpm - want).abs() / want < 0.015 && p_keep > 5.0 * p_shift;
                     steps.push(Step { name: "time_stretch", passed: ok, detail: format!("played at +6%: tempo {:.1} (wanted {:.1}), pitch kept: 440 Hz tone power {:.3} vs shifted {:.3}; key reads {} (unstretched {})", bpm, want, p_keep, p_shift, tracks::key_name(k, mi), tracks::key_name(k1, mi1)) });
                     let (a, b) = (&lib[0], &lib[1]);
-                    let c = dj::choose_mix(a, b, 0.0, 1.0, 16, false, dj::MixOpts::default());
+                    let c = dj::choose_mix(a, b, 0.0, 1.0, 16, false, dj::MixOpts::default(), None);
                     let (pass, det) = match c {
                         Some(c) => (c.out_pos > 0.0 && c.out_pos < a.samples() as f64 && c.in_pos < b.samples() as f64, c.why),
                         None => (false, "no mix points found".to_string()),

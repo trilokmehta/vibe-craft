@@ -123,6 +123,7 @@ pub struct App {
     pub upd: Option<crate::update::Shared>,
     pub time: f32,
     pub stem_cache: Vec<(usize, Arc<Stems>)>,
+    pub profiles: Vec<(usize, Arc<crate::vibe::Profile>)>,
     pub stem_job: Option<(usize, Arc<StemJob>)>,
     pub use_stems: bool,
     pub sections: Vec<Option<(f64, f64)>>,
@@ -206,6 +207,7 @@ impl App {
             upd: None,
             time: 0.0,
             stem_cache: Vec::new(),
+            profiles: Vec::new(),
             stem_job: None,
             use_stems: true,
             sections: Vec::new(),
@@ -404,7 +406,15 @@ impl App {
                 format!("tempos too far apart to beat-match: {:.0} s smart crossfade before {} fades out", dur, ta.title)
             };
             ((a_end - l_trk - 0.2 * sr).max(pos), in_default, why)
-        } else if let Some(c) = choose_mix(ta, tin, pos, rate, beats, calm, opts) {
+        } else if let Some(c) = {
+            let pa = self.profiles.iter().find(|p| p.0 == cur).map(|p| p.1.clone());
+            let pb = self.profiles.iter().find(|p| p.0 == nt).map(|p| p.1.clone());
+            let vp = match (&pa, &pb) {
+                (Some(a), Some(b)) => Some((a.as_ref(), b.as_ref())),
+                _ => None,
+            };
+            choose_mix(ta, tin, pos, rate, beats, calm, opts, vp)
+        } {
             (c.out_pos, c.in_pos, c.why)
         } else {
             let earliest = pos + 3.0 * sr * rate;

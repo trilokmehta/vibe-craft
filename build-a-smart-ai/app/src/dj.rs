@@ -589,7 +589,7 @@ fn nearest_level(points: &[MixPoint], pos: f64) -> f32 {
 /// AutoMix: looks through the whole of both songs for the best pair of
 /// (exit point, entry point) at or after `pos`. A section chosen by the
 /// person limits where the outgoing song may be left and where the next one starts.
-pub fn choose_mix(ta: &Track, tin: &Track, pos: f64, rate: f64, beats: u32, calm: bool, opts: MixOpts) -> Option<MixChoice> {
+pub fn choose_mix(ta: &Track, tin: &Track, pos: f64, rate: f64, beats: u32, calm: bool, opts: MixOpts, vp: Option<(&crate::vibe::Profile, &crate::vibe::Profile)>) -> Option<MixChoice> {
     let sr = crate::tracks::SR as f64;
     let ba = bar_len(ta);
     let bb = bar_len(tin);
@@ -611,7 +611,7 @@ pub fn choose_mix(ta: &Track, tin: &Track, pos: f64, rate: f64, beats: u32, calm
         ins = vec![MixPoint { pos: f, score: 1.0, kind: "your choice", lvl }];
     }
     let limited = opts.out_limit.is_some() || opts.force_out.is_some();
-    let mut best: Option<(f32, MixPoint, MixPoint)> = None;
+    let mut best: Option<(f32, MixPoint, MixPoint, String)> = None;
     for o in &outs {
         if o.pos < earliest && opts.force_out.is_none() {
             continue;
@@ -624,6 +624,7 @@ pub fn choose_mix(ta: &Track, tin: &Track, pos: f64, rate: f64, beats: u32, calm
                 continue;
             }
         }
+        let ob = vp.map(|(pa, _)| crate::vibe::out_bonus(pa, o.pos, trans_bars));
         let mut tpen = 0.0f32;
         if !limited {
             tpen = 0.9 * (1.0 - (o.pos / (0.7 * len_a)).min(1.0)) as f32;
@@ -638,8 +639,17 @@ pub fn choose_mix(ta: &Track, tin: &Track, pos: f64, rate: f64, beats: u32, calm
             if opts.force_in.is_none() && n.pos + (trans_bars + 4.0) * bb > b_end {
                 continue;
             }
-            let cont = 1.0 - (o.lvl - n.lvl).abs().min(1.0);
-            let mut s = o.score * if calm && o.kind == "outro" { 1.3 } else { 1.0 } + n.score * if calm && n.kind == "opening" { 1.4 } else { 1.0 } + 0.8 * cont - tpen;
+            let lvl_cont = 1.0 - (o.lvl - n.lvl).abs().min(1.0);
+            let (cont, vibe_why) = match vp {
+                Some((pa, pb)) => {
+                    let (ib, iw) = crate::vibe::in_bonus(pb, n.pos, trans_bars);
+                    let (ow, oww) = ob.unwrap();
+                    let (c, cw) = crate::vibe::continuity(pa, o.pos, pb, n.pos, trans_bars);
+                    (0.3 * lvl_cont + 1.4 * c + ow + ib, format!("; {}, {}; {}", oww, iw, cw))
+                }
+                None => (0.8 * lvl_cont, String::new()),
+            };
+            let mut s = o.score * if calm && o.kind == "outro" { 1.3 } else { 1.0 } + n.score * if calm && n.kind == "opening" { 1.4 } else { 1.0 } + cont - tpen;
             if !calm && n.kind != "opening" {
                 s += 0.15;
             }
@@ -648,14 +658,14 @@ pub fn choose_mix(ta: &Track, tin: &Track, pos: f64, rate: f64, beats: u32, calm
                 s -= 0.6 * skipped * if calm { 1.5 } else { 1.0 };
             }
             if best.as_ref().map(|b| s > b.0).unwrap_or(true) {
-                best = Some((s, o.clone(), n.clone()));
+                best = Some((s, o.clone(), n.clone(), vibe_why));
             }
         }
     }
-    best.map(|(_, o, n)| MixChoice {
+    best.map(|(_, o, n, vw)| MixChoice {
         out_pos: o.pos,
         in_pos: n.pos,
-        why: format!("leaves {} at {} ({}), enters {} at {} ({})", ta.title, clock(o.pos), o.kind, tin.title, clock(n.pos), n.kind),
+        why: format!("leaves {} at {} ({}), enters {} at {} ({}){}", ta.title, clock(o.pos), o.kind, tin.title, clock(n.pos), n.kind, vw),
     })
 }
 
