@@ -28,6 +28,10 @@ impl Style {
     }
 }
 
+/// Per-layer fade windows over transition progress 0..1: [outgoing, incoming][layer] = (start, end).
+/// Outgoing layers fade out over their window, incoming layers fade in over theirs.
+pub type Script = [[(f32, f32); NL]; 2];
+
 #[derive(Clone, Copy)]
 pub struct Pending {
     pub deck_in: usize,
@@ -37,6 +41,8 @@ pub struct Pending {
     pub dur_secs: f32,
     pub style: Style,
     pub out_bpm_eff: f32,
+    /// Per-layer fade windows built from the songs' layers (Phase 3).
+    pub script: Option<Script>,
 }
 
 #[derive(Clone, Copy)]
@@ -46,6 +52,7 @@ pub struct Trans {
     pub total: u32,
     pub elapsed: u32,
     pub style: Style,
+    pub script: Option<Script>,
 }
 
 #[derive(Clone, Copy)]
@@ -714,7 +721,7 @@ impl Mixer {
         }
         let beat = 60.0 / p.out_bpm_eff.max(40.0);
         self.delay = (((beat * 0.75) * self.sr) as usize).clamp(1000, self.dl.len() - 1);
-        self.trans = Some(Trans { out, inn, total: (p.dur_secs * self.sr).max(1.0) as u32, elapsed: 0, style: p.style });
+        self.trans = Some(Trans { out, inn, total: (p.dur_secs * self.sr).max(1.0) as u32, elapsed: 0, style: p.style, script: p.script });
         self.pending = None;
     }
 
@@ -723,7 +730,12 @@ impl Mixer {
         let mut tp = [TP::neutral(), TP::neutral()];
         if let Some(t) = self.trans {
             let x = t.elapsed as f32 / t.total as f32;
-            let (o, i) = trans_params(t.style, x);
+            let (mut o, mut i) = trans_params(t.style, x);
+            if let Some(sc) = t.script {
+                if self.decks[t.out].stems.is_some() && self.decks[t.inn].stems.is_some() {
+                    apply_script(&sc, x, &mut o, &mut i);
+                }
+            }
             tp[t.out] = o;
             tp[t.inn] = i;
             // keep the crossfader display following the automatic mix
@@ -924,4 +936,22 @@ mod cue_seek_tests {
         m.cue_seek(0, 5.0);
         assert!(m.cue_position().unwrap().1 > 300_000.0);
     }
+}
+
+/// Staged, layer-by-layer transition: each layer crossfades (equal power) over its
+/// own window, so beats, bass, instruments and vocals change hands one at a time.
+/// The deck gains stay at full because the layers now do the fading.
+pub fn apply_script(sc: &Script, x: f32, o: &mut TP, i: &mut TP) {
+    for k in 0..NL {
+        let (a, b) = sc[0][k];
+        let t = if b > a { sm(a, b, x) } else if x >= a { 1.0 } else { 0.0 };
+        o.stem[k] = (t * PI / 2.0).cos();
+        let (a, b) = sc[1][k];
+        let t = if b > a { sm(a, b, x) } else if x >= a { 1.0 } else { 0.0 };
+        i.stem[k] = (t * PI / 2.0).sin();
+    }
+    o.gain = 1.0;
+    i.gain = 1.0;
+    // A filter sweep or echo on the way out still works on top of the layers.
+    i.filt = 1.0;
 }

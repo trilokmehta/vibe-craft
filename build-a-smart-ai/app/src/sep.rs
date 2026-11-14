@@ -362,7 +362,7 @@ pub fn separate_file(path: &Path, mix: &[f32], progress: &AtomicU32) -> Result<S
     Ok(s)
 }
 
-fn write_wav(path: &Path, x: &[f32], sr: u32) {
+pub fn write_wav(path: &Path, x: &[f32], sr: u32) {
     let mut b = Vec::with_capacity(44 + x.len() * 2);
     let data_len = (x.len() * 2) as u32;
     b.extend_from_slice(b"RIFF");

@@ -280,3 +280,249 @@ pub fn self_test(lib: &[crate::tracks::Track], n: usize) {
     let pairs = profs.len().saturating_sub(1).max(1) as f32;
     println!("\nTOTAL over {} pairs: vocal-overlap bars old {:.0} new {:.0}; mean vibe match old {:.0}% new {:.0}%", pairs, ov_old, ov_new, 100.0 * c_old / pairs, 100.0 * c_new / pairs);
 }
+
+// ---- Phase 3: staged, layer-by-layer transitions -------------------------
+
+/// Builds the per-layer fade windows for a blend `t_bars` long that leaves song A at
+/// `out_pos` and enters song B at `in_pos`. Windows snap to quarter bars.
+/// Default order: beats -> bass swap -> instruments/melody -> vocals.
+pub fn script(pa: &Profile, out_pos: f64, pb: &Profile, in_pos: f64, t_bars: f32, beatmatched: bool) -> (crate::engine::Script, String) {
+    let t = t_bars.max(1.0);
+    let q = |x: f32| ((x * t * 4.0).round() / (t * 4.0)).clamp(0.0, 1.0);
+    let w = |a: f32, b: f32| (q(a), q(b).max(q(a) + 0.25 / t).min(1.0));
+    let i0 = pa.bar_at(out_pos);
+    let j0 = pb.bar_at(in_pos);
+    let tb = t.ceil() as isize;
+    let out_voc = pa.frac_on(V, i0, i0 + tb);
+    let in_voc_early = pb.frac_on(V, j0, j0 + (tb * 3 / 4).max(1));
+    let in_drums_early = pb.frac_on(DR, j0, j0 + (tb / 2).max(1));
+    // Do the two songs' notes fit together while both melodies would play?
+    let notes = match (pa.window(i0 - 2, i0 + 2), pb.window(j0, j0 + 4)) {
+        (Some((_, ca)), Some((_, cb))) => note_match(&ca, &cb),
+        _ => 0.7,
+    };
+    let clash = notes < 0.6;
+    let mut sc = [[(0.0f32, 1.0f32); NL]; 2];
+    let mut steps: Vec<(f32, &'static str)> = Vec::new();
+
+    // 1. Beats.
+    let drums_lead = in_drums_early > 0.3;
+    if beatmatched {
+        sc[1][DR] = if drums_lead { w(0.0, 0.25) } else { w(0.4, 0.55) };
+        sc[0][DR] = w(0.5, 0.8);
+    } else {
+        // Without a shared beat two drum kits must never play together.
+        sc[0][DR] = w(0.15, 0.4);
+        sc[1][DR] = w(0.5, 0.75);
+    }
+    steps.push((sc[1][DR].0, "beats"));
+
+    // 2. Bass swap: quick, on a bar line in the middle, never two basslines.
+    let mid = q(0.5);
+    sc[0][BA] = (mid - 0.25 / t, mid);
+    sc[1][BA] = (mid, mid + 0.25 / t);
+    steps.push((mid, "bass swap"));
+
+    // 3. Instruments and melody.
+    if clash {
+        // Notes clash: hand over without overlap.
+        sc[0][ME] = w(0.15, 0.45);
+        sc[0][MU] = w(0.2, 0.5);
+        sc[1][ME] = w(0.45, 0.75);
+        sc[1][MU] = w(0.5, 0.8);
+    } else if drums_lead {
+        sc[1][MU] = w(0.2, 0.55);
+        sc[1][ME] = w(0.3, 0.65);
+        sc[0][ME] = w(0.45, 0.85);
+        sc[0][MU] = w(0.5, 0.95);
+    } else {
+        // The next song opens with instruments: let them lead instead of the beat.
+        sc[1][MU] = w(0.0, 0.35);
+        sc[1][ME] = w(0.05, 0.4);
+        sc[0][ME] = w(0.4, 0.8);
+        sc[0][MU] = w(0.45, 0.9);
+    }
+    steps.push((sc[1][MU].0.min(sc[1][ME].0), if clash { "melody hand-off (notes clash)" } else { "instruments + melody" }));
+
+    // 4. Vocals: the outgoing singer leaves early if still singing; the new one comes last.
+    sc[0][V] = if out_voc > 0.2 { w(0.0, 0.3) } else { w(0.35, 0.7) };
+    sc[1][V] = if in_voc_early > 0.2 { w(0.85, 1.0) } else { w(0.6, 0.9) };
+    steps.push((sc[1][V].0, "vocals"));
+
+    // Safeguard: never let the outgoing song leave before the incoming one is
+    // actually sounding (quiet intros), or the blend sags into near-silence.
+    let body_a = pa.window(i0 - 4, i0).map(|(l, _)| l.iter().map(|x| x * x).sum::<f32>().sqrt()).unwrap_or(1.0).max(0.05);
+    let mut ready = 1.0f32;
+    for k in 0..tb {
+        let lb = pb.window(j0 + k, j0 + k + 1).map(|(l, _)| l.iter().map(|x| x * x).sum::<f32>().sqrt()).unwrap_or(0.0);
+        if lb >= 0.5 * body_a {
+            ready = k as f32 / t;
+            break;
+        }
+    }
+    let mut late = false;
+    if ready > 0.0 {
+        // Squeeze every outgoing window into [ready, 1].
+        for k in 0..NL {
+            let (a, b) = sc[0][k];
+            if a < ready {
+                late = true;
+            }
+            let na = ready + a * (1.0 - ready);
+            let nb = ready + b * (1.0 - ready);
+            sc[0][k] = (q(na), q(nb).max(q(na) + 0.25 / t).min(1.0));
+        }
+        // Keep the bass swap clean after the shift.
+        if sc[1][BA].0 < sc[0][BA].1 {
+            sc[1][BA] = (sc[0][BA].1, (sc[0][BA].1 + 0.25 / t).min(1.0));
+        }
+    }
+    // Loudness check: predict the blend's level from both songs' layer levels and,
+    // where it would sag more than 6 dB, keep an outgoing layer playing longer.
+    // Preference: the music bed, then melody, vocals, drums (bass never overlaps).
+    let la = pa.window(i0 - 4, i0).map(|w| w.0).unwrap_or([0.3; NL]);
+    let lbv: Vec<[f32; NL]> = (0..tb).map(|k| pb.window(j0 + k, j0 + k + 1).map(|w| w.0).unwrap_or([0.0; NL])).collect();
+    let fade = |w: (f32, f32), x: f32| if w.1 > w.0 { ((x - w.0) / (w.1 - w.0)).clamp(0.0, 1.0) } else if x >= w.0 { 1.0 } else { 0.0 };
+    let level = |sc: &crate::engine::Script, x: f32| -> f32 {
+        let lb = &lbv[((x * t) as usize).min(lbv.len().saturating_sub(1))];
+        let mut e = 0f32;
+        for k in 0..NL {
+            let go = (fade(sc[0][k], x) * std::f32::consts::FRAC_PI_2).cos();
+            let gi = (fade(sc[1][k], x) * std::f32::consts::FRAC_PI_2).sin();
+            e += (la[k] * go).powi(2) + (lb.get(k).copied().unwrap_or(0.0) * gi).powi(2);
+        }
+        e.sqrt()
+    };
+    let target = la.iter().map(|x| x * x).sum::<f32>().sqrt() * 0.5;
+    let mut held = false;
+    for _ in 0..8 {
+        let steps_x = (t * 4.0) as usize;
+        let dip = (0..=steps_x).map(|s| s as f32 / steps_x as f32).find(|&x| level(&sc, x) < target);
+        let Some(x) = dip else { break };
+        let mut fixed = false;
+        for k in [MU, ME, V, DR] {
+            if sc[0][k].1 < (x + 0.2).min(1.0) && la[k] > 0.02 {
+                sc[0][k] = (sc[0][k].0.max(q(x)), q((x + 0.25).min(1.0)).max(sc[0][k].1));
+                held = true;
+                fixed = true;
+                break;
+            }
+        }
+        if !fixed {
+            break;
+        }
+    }
+    if held {
+        steps.push((1.0, "(kept part of the current song longer to avoid a gap)"));
+    }
+    steps.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    let order: Vec<&str> = steps.iter().map(|s| s.1).collect();
+    let note = if late { format!(" (holding the current song until bar {} while the next one's intro builds)", (ready * t).round() as i32 + 1) } else { String::new() };
+    (sc, format!("layered: {}{}", order.join(" -> "), note))
+}
+
+#[cfg(test)]
+mod script_tests {
+    use super::*;
+    use std::sync::Arc;
+
+    fn flat(on: [bool; NL], bars: usize) -> Profile {
+        Profile { origin: 0.0, bar: 1000.0, lv: vec![[0.5; NL]; bars], on: vec![on; bars], chroma: vec![[1.0; 12]; bars] }
+    }
+
+    #[test]
+    fn beats_first_vocals_last() {
+        let pa = flat([true; NL], 64);
+        let pb = flat([true; NL], 64);
+        let (sc, why) = script(&pa, 16000.0, &pb, 0.0, 8.0, true);
+        assert!(sc[1][DR].0 < sc[1][BA].0, "{}", why);
+        assert!(sc[1][BA].0 < sc[1][V].0);
+        // never two basslines: outgoing bass is gone when incoming starts
+        assert!(sc[0][BA].1 <= sc[1][BA].0 + 1e-6);
+        assert!(why.starts_with("layered: beats"), "{}", why);
+        let _ = Arc::new(0);
+    }
+
+    #[test]
+    fn unmatched_drums_never_overlap() {
+        let pa = flat([true; NL], 64);
+        let pb = flat([true; NL], 64);
+        let (sc, _) = script(&pa, 16000.0, &pb, 0.0, 8.0, false);
+        assert!(sc[0][DR].1 <= sc[1][DR].0);
+    }
+}
+
+/// `--layer-test [pairs]`: renders real transitions between songs in the music folder
+/// twice, with the layered script and with the old fixed curves, to
+/// layer_test/<n>_layered.wav and <n>_old.wav, and prints the loudness through each.
+pub fn render_test(lib: &[crate::tracks::Track], pairs: usize) {
+    use crate::dj::{choose_mix, MixOpts};
+    use crate::engine::{Mixer, Pending, Style};
+    crate::sep::ensure_model();
+    while matches!(crate::sep::model_state(), crate::sep::ModelState::Downloading(_)) {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+    let out = std::path::Path::new("layer_test");
+    let _ = std::fs::create_dir_all(out);
+    let mut ready = Vec::new();
+    for t in lib.iter() {
+        if ready.len() > pairs {
+            break;
+        }
+        let Some(path) = &t.path else { continue };
+        let pcm = t.audio();
+        let prog = std::sync::atomic::AtomicU32::new(0);
+        if let Ok(s) = crate::sep::separate_file(path, &pcm, &prog) {
+            let bar = 4.0 * SR as f64 * 60.0 / t.a.bpm.max(40.0) as f64;
+            let p = profile(&s, t.a.origin, bar, t.a.bars.len());
+            ready.push((t, std::sync::Arc::new(s), p, pcm));
+            eprintln!("ready: {}", t.title);
+        }
+    }
+    for (n, w) in ready.windows(2).enumerate() {
+        let ((ta, sa, pa, pcm_a), (tb, sb, pb, pcm_b)) = (&w[0], &w[1]);
+        let rate = ta.a.bpm as f64 / tb.a.bpm as f64;
+        let matched = (rate - 1.0).abs() < 0.08;
+        let (style, beats) = if matched { (Style::Blend, 32u32) } else { (Style::Fade, 0) };
+        let dur = if matched { beats as f32 * 60.0 / ta.a.bpm } else { 12.0 };
+        let Some(c) = choose_mix(ta, tb, 0.0, 1.0, beats.max(16), false, MixOpts::default(), Some((pa, pb))) else { continue };
+        let t_bars = if matched { beats as f32 / 4.0 } else { dur * ta.a.bpm / 240.0 };
+        let (sc, desc) = script(pa, c.out_pos, pb, c.in_pos, t_bars, matched);
+        println!("\n#{} {} -> {}\n   {}\n   {}", n + 1, ta.title, tb.title, c.why, desc);
+        for (label, scr) in [("layered", Some(sc)), ("old", None)] {
+            let mut m = Mixer::new();
+            m.set_sr(SR as f32);
+            let pre = 8.0 * SR as f64;
+            for (d, (t, s, pcm, pos)) in [(ta, sa, pcm_a, c.out_pos - pre), (tb, sb, pcm_b, c.in_pos)].into_iter().enumerate() {
+                m.decks[d].pcm = Some(pcm.clone());
+                m.decks[d].stems = Some(s.clone());
+                m.decks[d].track = Some(d);
+                m.decks[d].bpm = t.a.bpm;
+                m.decks[d].origin = t.a.origin;
+                m.decks[d].norm = t.a.gain;
+                m.decks[d].pos = pos.max(0.0);
+            }
+            m.decks[0].playing = true;
+            m.pending = Some(Pending { deck_in: 1, trigger: c.out_pos, start_pos: c.in_pos, in_rate: if matched { rate } else { 1.0 }, dur_secs: dur, style, out_bpm_eff: ta.a.bpm, script: scr });
+            let secs = 8.0 + dur + 10.0;
+            let mut buf = vec![0f32; (SR as f32 * secs) as usize * 2];
+            m.render(&mut buf, 2);
+            let mono: Vec<f32> = buf.chunks(2).map(|f| f[0]).collect();
+            crate::sep::write_wav(&out.join(format!("{}_{}.wav", n + 1, label)), &mono, SR);
+            // loudness in 0.5 s windows during the blend vs before it
+            let win = SR as usize / 2;
+            let rms: Vec<f32> = mono.chunks(win).map(|c| (c.iter().map(|x| x * x).sum::<f32>() / c.len() as f32).sqrt()).collect();
+            let before: f32 = rms[2..14].iter().sum::<f32>() / 12.0;
+            let blend = &rms[16..(16 + (dur * 2.0) as usize).min(rms.len())];
+            let lo = blend.iter().cloned().fold(f32::MAX, f32::min);
+            let hi = blend.iter().cloned().fold(0.0, f32::max);
+            println!("   {:<8} loudness during blend: {:+.1} dB .. {:+.1} dB vs before", label, 20.0 * (lo / before).log10(), 20.0 * (hi / before).log10());
+            if std::env::var("VC_DEBUG").is_ok() {
+                let curve: Vec<String> = blend.iter().map(|v| format!("{:.0}", 20.0 * (v / before).log10())).collect();
+                println!("     dB per 0.5 s: {}", curve.join(" "));
+                if let Some(s) = scr { println!("     out {:?}
+     in  {:?}", s[0], s[1]); }
+            }
+        }
+    }
+}

@@ -185,6 +185,19 @@ async fn main() {
             }
         }
     }
+    if args.iter().any(|a| a == "--layer-test") {
+        let n: usize = arg("--layer-test").and_then(|s| s.parse().ok()).unwrap_or(2);
+        let dir = tracks::find_default_music().unwrap_or_else(|| std::path::PathBuf::from("music"));
+        let prog = std::sync::Arc::new(Mutex::new(tracks::Progress::default()));
+        tracks::start_scan(dir, prog.clone());
+        while !prog.lock().unwrap().finished {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        let mut tv = prog.lock().unwrap().result.take().unwrap_or_default();
+        tracks::finalize(&mut tv);
+        vibe::render_test(&tv, n);
+        std::process::exit(0);
+    }
     if args.iter().any(|a| a == "--vibe-test") {
         let n: usize = arg("--vibe-test").and_then(|s| s.parse().ok()).unwrap_or(3);
         let dir = tracks::find_default_music().unwrap_or_else(|| std::path::PathBuf::from("music"));
@@ -398,7 +411,7 @@ async fn main() {
                 m.decks[1].origin = tb.a.origin;
                 m.decks[1].norm = if mute == 1 { 0.0 } else { tb.a.gain };
                 if mute != 3 {
-                    m.pending = Some(engine::Pending { deck_in: 1, trigger: p0 + 5.0 * sr, start_pos: tb.samples() as f64 * 0.2, in_rate: 1.0, dur_secs: 6.0, style, out_bpm_eff: ta.a.bpm });
+                    m.pending = Some(engine::Pending { deck_in: 1, trigger: p0 + 5.0 * sr, start_pos: tb.samples() as f64 * 0.2, in_rate: 1.0, dur_secs: 6.0, style, out_bpm_eff: ta.a.bpm, script: None });
                 }
                 let mut buf = vec![0f32; SR as usize * 17 * 2];
                 m.render(&mut buf, 2);
@@ -719,7 +732,7 @@ async fn main() {
                     m.decks[1].norm = tb.a.gain;
                     let rate = ta.a.bpm as f64 / tb.a.bpm as f64;
                     let dur = 16.0 * 60.0 / ta.a.bpm;
-                    m.pending = Some(engine::Pending { deck_in: 1, trigger: p0 + 2.0 * bar, start_pos: tb.a.origin + 8.0 * bar_b, in_rate: rate, dur_secs: dur, style: Style::Blend, out_bpm_eff: ta.a.bpm });
+                    m.pending = Some(engine::Pending { deck_in: 1, trigger: p0 + 2.0 * bar, start_pos: tb.a.origin + 8.0 * bar_b, in_rate: rate, dur_secs: dur, style: Style::Blend, out_bpm_eff: ta.a.bpm, script: None });
                     let mut buf = vec![0f32; SR as usize * 12 * 2];
                     m.render(&mut buf, 2);
                     let w = SR as usize / 2;
@@ -766,7 +779,7 @@ async fn main() {
                     m.decks[1].norm = tb.a.gain;
                     let rate = ta.a.bpm as f64 / tb.a.bpm as f64;
                     let dur = 16.0 * 60.0 / ta.a.bpm;
-                    m.pending = Some(engine::Pending { deck_in: 1, trigger: p0 + 2.0 * bar, start_pos: tb.a.origin + 8.0 * bar_b, in_rate: rate, dur_secs: dur, style: Style::Blend, out_bpm_eff: ta.a.bpm });
+                    m.pending = Some(engine::Pending { deck_in: 1, trigger: p0 + 2.0 * bar, start_pos: tb.a.origin + 8.0 * bar_b, in_rate: rate, dur_secs: dur, style: Style::Blend, out_bpm_eff: ta.a.bpm, script: None });
                     let secs = 12usize;
                     let mut buf = vec![0f32; SR as usize * secs * 2];
                     m.render(&mut buf, 2);

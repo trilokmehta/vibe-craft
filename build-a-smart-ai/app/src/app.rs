@@ -428,6 +428,19 @@ impl App {
             (p, in_default, "mixing at the end of the song".to_string())
         };
         let tin_audio = tin.audio(); // decode before taking the audio lock
+        // Phase 3: a layer-by-layer script when both songs have AI layers.
+        let (script, why) = {
+            let pa = self.profiles.iter().find(|p| p.0 == cur).map(|p| p.1.clone());
+            let pb = self.profiles.iter().find(|p| p.0 == nt).map(|p| p.1.clone());
+            match (pa, pb, style) {
+                (Some(pa), Some(pb), Style::Blend | Style::FilterEcho | Style::Fade) if !classic && !force => {
+                    let t_bars = if style == Style::Fade { dur * out_eff.max(40.0) / 240.0 } else { beats as f32 / 4.0 };
+                    let (sc, desc) = crate::vibe::script(&pa, trigger, &pb, in_pos, t_bars, style != Style::Fade);
+                    (Some(sc), format!("{}; {}", why, desc))
+                }
+                _ => (None, why),
+            }
+        };
         // Lock the beats where the songs actually overlap: line up the drum hits there.
         let in_pos = if !classic && matches!(style, Style::Blend | Style::FilterEcho) {
             let a_audio = ta.audio();
@@ -455,7 +468,7 @@ impl App {
             d.ease = false;
             d.stems = None;
             d.sg = [1.0; crate::stems::NL];
-            m.pending = Some(Pending { deck_in: inn, trigger, start_pos: in_pos, in_rate, dur_secs: dur, style, out_bpm_eff: out_eff });
+            m.pending = Some(Pending { deck_in: inn, trigger, start_pos: in_pos, in_rate, dur_secs: dur, style, out_bpm_eff: out_eff, script });
         }
         let why = if intro_quiet >= 2.0 { format!("{}; {} has a {:.0} s quiet intro", why, tin.title, intro_quiet) } else { why };
         self.armed = Some(Armed { track: nt, trigger, style, beats, in_rate, out_eff, ks, matched, l_trk, cur, in_pos, why });
