@@ -232,6 +232,139 @@ impl App {
         hv && self.click
     }
 
+    /// Compact header pill: soft tinted fill, thin outline, icon dot and label.
+    /// Sized to its text so nothing is ever cut off. Returns true when clicked.
+    pub fn pill(&mut self, x: f32, y: f32, label: &str, c: Color, icon: u8) -> bool {
+        let size = 15.0;
+        let w = tw(label, size) + 44.0;
+        let h = 28.0;
+        let hv = self.hov(x, y, w, h);
+        let k = self.anim.entry((x as i32 ^ 0x7e7e, 77)).or_insert(0.0);
+        *k += ((if hv { 1.0 } else { 0.0 }) - *k) * (self.dt * 14.0).min(1.0);
+        let hk = *k;
+        rrect(x - 1.0, y - 1.0, w + 2.0, h + 2.0, (h + 2.0) / 2.0, Color::new(c.r, c.g, c.b, 0.55 + 0.35 * hk));
+        rrect(x, y, w, h, h / 2.0, Color::new(0.05 + c.r * 0.12 * (1.0 + hk), 0.05 + c.g * 0.12 * (1.0 + hk), 0.07 + c.b * 0.12 * (1.0 + hk), 1.0));
+        let (ix, iy) = (x + 16.0, y + h / 2.0);
+        draw_circle(ix, iy, 8.0, c);
+        let ink = Color::new(0.05, 0.05, 0.08, 1.0);
+        if icon == 0 {
+            // download arrow
+            draw_line(ix, iy - 4.0, ix, iy + 2.5, 1.8, ink);
+            draw_triangle(vec2(ix - 3.5, iy + 0.5), vec2(ix + 3.5, iy + 0.5), vec2(ix, iy + 4.5), ink);
+        } else {
+            // restart: tick
+            draw_line(ix - 3.5, iy, ix - 1.0, iy + 3.0, 1.8, ink);
+            draw_line(ix - 1.0, iy + 3.0, ix + 4.0, iy - 3.0, 1.8, ink);
+        }
+        draw_text(label, x + 30.0, y + h / 2.0 + size * 0.33, size, Color::new(1.0, 1.0, 1.0, 0.92 + 0.08 * hk));
+        hv && self.click
+    }
+
+    /// Rotary knob (0..1). Drag up/down to turn, right-click to reset to `def`.
+    /// A tick marks `def` on the ring. Returns the new value while it changes.
+    pub fn knob(&mut self, cx: f32, cy: f32, r: f32, v: f32, def: f32, label: &str, text: &str, accent: Color) -> Option<f32> {
+        let key = (cx as i32, cy as i32);
+        let hv = self.hov(cx - r - 6.0, cy - r - 6.0, 2.0 * r + 12.0, 2.0 * r + 12.0);
+        if self.click && hv {
+            self.knob_grab = Some((key.0, key.1, self.my, v));
+        }
+        let mut out = None;
+        let mut nv = v;
+        if let Some((kx, ky, gy, gv)) = self.knob_grab {
+            if !is_mouse_button_down(MouseButton::Left) {
+                self.knob_grab = None;
+            } else if (kx, ky) == key {
+                nv = (gv + (gy - self.my) / 160.0).clamp(0.0, 1.0);
+                out = Some(nv);
+            }
+        }
+        if hv && is_mouse_button_pressed(MouseButton::Right) {
+            nv = def;
+            out = Some(def);
+        }
+        let active = self.knob_grab.map(|g| (g.0, g.1) == key).unwrap_or(false);
+        let sweep = 2.356f32;
+        let pt = |a: f32, rr: f32| vec2(cx + rr * a.sin(), cy - rr * a.cos());
+        // body with a soft rim
+        draw_circle(cx, cy + 1.5, r - 1.0, Color::new(0.0, 0.0, 0.0, 0.35));
+        draw_circle(cx, cy, r - 3.0, Color::new(0.16, 0.16, 0.19, 1.0));
+        draw_circle(cx, cy, r - 6.0, Color::new(1.0, 1.0, 1.0, if hv || active { 0.10 } else { 0.06 }));
+        // ring: lit from the default point to the value (bipolar for centred knobs)
+        let seg = 36;
+        let (lo, hi) = if def > 0.01 && def < 0.99 { (nv.min(def), nv.max(def)) } else { (0.0, nv) };
+        for i in 0..seg {
+            let f0 = i as f32 / seg as f32;
+            let f1 = (i + 1) as f32 / seg as f32;
+            let mid = (f0 + f1) / 2.0;
+            let lit = mid >= lo && mid <= hi;
+            let c = if lit { accent } else { Color::new(1.0, 1.0, 1.0, 0.13) };
+            let (p0, p1) = (pt(-sweep + 2.0 * sweep * f0, r), pt(-sweep + 2.0 * sweep * f1, r));
+            draw_line(p0.x, p0.y, p1.x, p1.y, 3.5, c);
+        }
+        let dp = pt(-sweep + 2.0 * sweep * def, r + 5.0);
+        draw_circle(dp.x, dp.y, 1.6, Color::new(1.0, 1.0, 1.0, 0.45));
+        let ap = -sweep + 2.0 * sweep * nv;
+        let (p0, p1) = (pt(ap, r * 0.25), pt(ap, r - 7.0));
+        draw_line(p0.x, p0.y, p1.x, p1.y, 3.0, WHITE);
+        draw_text(label, cx - tw(label, 14.0) / 2.0, cy + r + 18.0, 14.0, Color::new(1.0, 1.0, 1.0, 0.7));
+        if hv || active {
+            draw_text(text, cx - tw(text, 13.0) / 2.0, cy - r - 8.0, 13.0, accent);
+        }
+        out
+    }
+
+    /// Vertical channel fader (0..1, top = 1). Drag the cap or click the track;
+    /// right-click resets to `def`. Returns the new value while it changes.
+    pub fn vfader(&mut self, x: f32, y: f32, h: f32, v: f32, def: f32, accent: Color) -> Option<f32> {
+        let key = (x as i32, -(y as i32) - 1);
+        let hv = self.hov(x - 14.0, y - 8.0, 28.0, h + 16.0);
+        if self.click && hv {
+            self.knob_grab = Some((key.0, key.1, self.my, v));
+        }
+        let mut out = None;
+        let mut nv = v;
+        if let Some((kx, ky, _, _)) = self.knob_grab {
+            if !is_mouse_button_down(MouseButton::Left) {
+                self.knob_grab = None;
+            } else if (kx, ky) == key {
+                nv = (1.0 - (self.my - y) / h).clamp(0.0, 1.0);
+                out = Some(nv);
+            }
+        }
+        if hv && is_mouse_button_pressed(MouseButton::Right) {
+            nv = def;
+            out = Some(def);
+        }
+        // slot with scale marks
+        rrect(x - 3.0, y, 6.0, h, 3.0, Color::new(0.0, 0.0, 0.0, 0.5));
+        for i in 0..=10 {
+            let ty = y + h * i as f32 / 10.0;
+            let wd = if i % 5 == 0 { 7.0 } else { 4.0 };
+            draw_line(x - 9.0 - wd, ty, x - 9.0, ty, 1.0, Color::new(1.0, 1.0, 1.0, 0.25));
+        }
+        rrect(x - 3.0, y + h * (1.0 - nv), 6.0, h * nv, 3.0, Color::new(accent.r, accent.g, accent.b, 0.55));
+        // cap
+        let cy = y + h * (1.0 - nv);
+        rrect(x - 12.0, cy - 7.0, 24.0, 14.0, 3.0, Color::new(0.85, 0.85, 0.9, 1.0));
+        draw_line(x - 9.0, cy, x + 9.0, cy, 2.0, Color::new(0.1, 0.1, 0.12, 1.0));
+        out
+    }
+
+    /// Segmented level meter (green / yellow / red), level 0..1 (1 = clipping).
+    pub fn meter(&self, x: f32, y: f32, w: f32, h: f32, level: f32) {
+        let n = 16;
+        let gap = 2.0;
+        let sh = (h - gap * (n as f32 - 1.0)) / n as f32;
+        let lit = (level.clamp(0.0, 1.0) * n as f32).round() as usize;
+        for i in 0..n {
+            let f = i as f32 / n as f32;
+            let c = if f >= 0.88 { Color::new(1.0, 0.25, 0.25, 1.0) } else if f >= 0.7 { Color::new(1.0, 0.8, 0.2, 1.0) } else { Color::new(0.3, 1.0, 0.55, 1.0) };
+            let a = if i < lit { 0.95 } else { 0.10 };
+            let sy = y + h - (i as f32 + 1.0) * sh - i as f32 * gap;
+            draw_rectangle(x, sy, w, sh, Color::new(c.r, c.g, c.b, a));
+        }
+    }
+
     pub fn slider(&mut self, x: f32, y: f32, w: f32, v: &mut f32, accent: Color) -> bool {
         let hv = self.hov(x - 8.0, y - 12.0, w + 16.0, 24.0);
         let mut changed = false;
@@ -385,6 +518,8 @@ impl App {
         let t = &lib[self.current];
         let accent = self.acc;
         draw_rectangle(0.0, 0.0, w, HDR, Color::new(0.04, 0.04, 0.06, 1.0));
+        // Hairline under the header, tinted by the song's colour.
+        draw_rectangle(0.0, HDR - 1.0, w, 1.0, Color::new(accent.r, accent.g, accent.b, 0.25));
         let narrow = w < 760.0;
         if let Some(tex) = &self.logo {
             // Soft glow that breathes with the music clock.
@@ -393,18 +528,18 @@ impl App {
             draw_texture_ex(tex, 16.0, 12.0, WHITE, DrawTextureParams { dest_size: Some(vec2(36.0, 36.0)), ..Default::default() });
         }
         if !narrow {
-            draw_text("VIBE CRAFT", 62.0, 38.0, 26.0, WHITE);
+            draw_text("VIBE CRAFT", 62.0, 37.0, 24.0, WHITE);
+            draw_text(concat!("v", env!("CARGO_PKG_VERSION")), 62.0 + tw("VIBE CRAFT", 24.0) + 8.0, 37.0, 13.0, Color::new(1.0, 1.0, 1.0, 0.35));
         }
         if self.loader.is_none() {
             if let Some(st) = self.upd.clone() {
                 let s = st.lock().unwrap().clone();
-                let bx = if narrow { 60.0 } else { 220.0 };
+                let bx = if narrow { 60.0 } else { 62.0 + tw("VIBE CRAFT", 24.0) + 60.0 };
                 use crate::update::State;
                 match s {
                     State::Available { tag, .. } => {
-                        let label = format!("Update to {}", tag);
-                        let bw = tw(&label, 18.0) + 30.0;
-                        if self.button(bx, 14.0, bw, 32.0, &label, true, Color::new(0.13, 0.83, 0.93, 1.0)) {
+                        let label = format!("Update available  {}", tag);
+                        if self.pill(bx, 16.0, &label, Color::new(0.13, 0.83, 0.93, 1.0), 0) {
                             crate::update::install(&st);
                         }
                     }
@@ -416,9 +551,8 @@ impl App {
                         draw_text(&msg, bx + 12.0, 35.0, 17.0, WHITE);
                     }
                     State::Ready { tag } => {
-                        let label = format!("Restart for {}", tag);
-                        let bw = tw(&label, 18.0) + 30.0;
-                        if self.button(bx, 14.0, bw, 32.0, &label, true, Color::new(0.3, 1.0, 0.6, 1.0)) {
+                        let label = format!("Restart to finish  {}", tag);
+                        if self.pill(bx, 16.0, &label, Color::new(0.3, 1.0, 0.6, 1.0), 1) {
                             crate::update::restart();
                         }
                     }
@@ -439,7 +573,7 @@ impl App {
             };
             let msg = if f > 0 { format!("Scanning music {}/{}", d, f) } else { "Scanning music...".to_string() };
             let wd = tw(&msg, 17.0) + 34.0;
-            let bx = if narrow { 60.0 } else { 220.0 };
+            let bx = if narrow { 60.0 } else { 62.0 + tw("VIBE CRAFT", 24.0) + 60.0 };
             rrect(bx, 17.0, wd, 26.0, 13.0, Color::new(accent.r, accent.g, accent.b, 0.2));
             let pulse = 0.5 + 0.5 * (self.time * 5.0).sin();
             draw_circle(bx + 14.0, 30.0, 4.0, Color::new(accent.r, accent.g, accent.b, 0.4 + 0.6 * pulse));
@@ -457,8 +591,6 @@ impl App {
         }
         let fy = h - FTR;
         draw_rectangle(0.0, fy, w, FTR, Color::new(0.04, 0.04, 0.06, 1.0));
-        let ver = concat!("v", env!("CARGO_PKG_VERSION"));
-        draw_text(ver, w - tw(ver, 13.0) - 10.0, h - 8.0, 13.0, Color::new(1.0, 1.0, 1.0, 0.4));
         let a = self.snap.active;
         let len = self.snap.len[a].max(1.0);
         let pos_frac = (self.snap.pos[a] / len).clamp(0.0, 1.0) as f32;

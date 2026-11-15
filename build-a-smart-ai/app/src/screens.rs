@@ -65,7 +65,13 @@ impl App {
         }
         self.wave(wx, y + 44.0, ww, 70.0, t, Some(self.snap.pos[a]), &marks_cur, accent);
         self.section_overlay(wx, y + 44.0, ww, 70.0, cur, accent);
+        let on_btn = self.sections.get(cur).copied().flatten().is_some() && self.hov(wx + ww - 130.0, y + 90.0, 124.0, 22.0);
+        let clk = self.click;
+        if on_btn {
+            self.click = false;
+        }
         self.wave_interact(wx, y + 44.0, ww, 70.0, cur, 0);
+        self.click = clk;
         let chosen_out = self.armed.as_ref().map(|ar| ar.trigger);
         let tol = 2.0 * SR as f64 * 60.0 / t.a.bpm as f64 * 4.0;
         if let Some(i) = self.point_chips(wx, y + 122.0, ww, "Exit points", &cur_pts, chosen_out, tol, accent) {
@@ -95,7 +101,14 @@ impl App {
             }
             self.wave(wx, y + 160.0, ww, 70.0, tn, ph.or(Some(in_at)), &marks, an);
             self.section_overlay(wx, y + 160.0, ww, 70.0, n, an);
+            // The Clear section button sits on the wave: its clicks must not start a new selection.
+            let on_btn = self.sections.get(n).copied().flatten().is_some() && self.hov(wx + ww - 130.0, y + 206.0, 124.0, 22.0);
+            let clk = self.click;
+            if on_btn {
+                self.click = false;
+            }
             self.wave_interact(wx, y + 160.0, ww, 70.0, n, 1);
+            self.click = clk;
             let tol_n = 2.0 * SR as f64 * 60.0 / tn.a.bpm as f64 * 4.0;
             if let Some(i) = self.point_chips(wx, y + 238.0, ww, "Entry points", &next_pts, Some(in_at), tol_n, an) {
                 let end = (tn.a.origin + tn.a.last_bar as f64 * tol_n / 2.0).min(tn.samples() as f64);
@@ -251,9 +264,14 @@ impl App {
         if let Some(q) = self.queue.first() {
             let t = &lib[q.track];
             let audio = t.audio(); // decode before taking the audio lock
+            let cached = if self.use_stems { self.stem_cache.iter().find(|c| c.0 == q.track).map(|c| c.1.clone()) } else { None };
             let mixer = self.mixer.clone();
             let mut m = mixer.lock().unwrap();
             let dk = &mut m.decks[d];
+            // Same song already here: keep its layers (no flicker); otherwise take them from the cache.
+            if dk.track != Some(q.track) || dk.stems.is_none() {
+                dk.stems = cached;
+            }
             dk.pcm = Some(audio);
             dk.track = Some(q.track);
             dk.pos = t.a.origin;
@@ -263,7 +281,6 @@ impl App {
             dk.origin = t.a.origin;
             dk.norm = t.a.gain;
             dk.playing = false;
-            dk.stems = None;
         }
     }
 
@@ -384,27 +401,34 @@ impl App {
             }
             let by = py + 156.0;
             let bw = (pw - 32.0 - 5.0 * 6.0) / 6.0;
-            let labels = [if self.snap.playing[d] { "Pause" } else { "Play" }, "Cue", if self.snap.loop_on[d] { "Loop off" } else { "Loop 4" }, if self.snap.sync[d] { "Synced" } else { "Sync" }, "Tempo -", "Tempo +"];
+            let labels = [if self.snap.playing[d] { "Pause" } else { "Play" }, "Cue", if self.snap.loop_on[d] { "Loop off" } else { "Loop 4" }, if self.snap.sync[d] { "Synced" } else { "Sync" }, "BPM -", "BPM +"];
             for (k, l) in labels.iter().enumerate() {
                 let active = (k == 0 && self.snap.playing[d]) || (k == 2 && self.snap.loop_on[d]) || (k == 3 && self.snap.sync[d]);
                 if self.button(px + 16.0 + k as f32 * (bw + 6.0), by, bw, 32.0, l, active, accent) {
                     self.deck_action(d, k);
                 }
             }
-            let mut ey = by + 56.0;
+            // EQ and filter as rotary knobs (drag up/down, right-click resets).
+            let ky = by + 100.0;
+            let kr = 26.0;
+            let cell = (pw - 32.0) / 4.0;
             let names = ["Bass", "Mids", "Treble"];
-            for k in 0..3 {
-                let mut v = self.snap.eq[d][k] / 1.5;
-                draw_text(names[k], px + 16.0, ey + 5.0, 16.0, Color::new(1.0, 1.0, 1.0, 0.7));
-                if self.slider(px + 80.0, ey, pw - 112.0, &mut v, accent) {
-                    mixer.lock().unwrap().decks[d].eq[k] = v * 1.5;
+            for k in 0..4 {
+                let cx = px + 16.0 + cell * (k as f32 + 0.5);
+                if k < 3 {
+                    let v = self.snap.eq[d][k] / 1.5;
+                    let db = 20.0 * (self.snap.eq[d][k].max(0.001)).log10();
+                    let txt = if self.snap.eq[d][k] < 0.02 { "kill".to_string() } else { format!("{:+.1} dB", db) };
+                    if let Some(nv) = self.knob(cx, ky, kr, v, 1.0 / 1.5, names[k], &txt, accent) {
+                        mixer.lock().unwrap().decks[d].eq[k] = nv * 1.5;
+                    }
+                } else {
+                    let v = self.snap.filt[d];
+                    let txt = if v > 0.99 { "open".to_string() } else { format!("{:.0}%", v * 100.0) };
+                    if let Some(nv) = self.knob(cx, ky, kr, v, 1.0, "Filter", &txt, accent) {
+                        mixer.lock().unwrap().decks[d].filt = nv;
+                    }
                 }
-                ey += 28.0;
-            }
-            let mut v = self.snap.filt[d];
-            draw_text("Filter", px + 16.0, ey + 5.0, 16.0, Color::new(1.0, 1.0, 1.0, 0.7));
-            if self.slider(px + 80.0, ey, pw - 112.0, &mut v, accent) {
-                mixer.lock().unwrap().decks[d].filt = v;
             }
             if manual && self.button(px + pw - 130.0, py + 8.0, 114.0, 24.0, "Load next", false, accent) {
                 self.load_to_deck(d);
@@ -417,31 +441,68 @@ impl App {
         rrect(cx, cy0, cw, 330.0, 14.0, Color::new(1.0, 1.0, 1.0, 0.06));
         draw_text("MIXER", cx + 16.0, cy0 + 26.0, 16.0, Color::new(1.0, 1.0, 1.0, 0.6));
         let a = Color::new(0.5, 0.9, 1.0, 1.0);
+        let deck_col = |d: usize| self.snap.track[d].map(|i| hsv(lib[i].hue / 360.0, 0.45, 1.0)).unwrap_or(a);
+        let (ca, cb) = (deck_col(0), deck_col(1));
+        // meters read in dB: -36 dB .. 0 dB
+        let db_level = |l: f32| (1.0 + 20.0 * l.max(1e-5).log10() / 36.0).clamp(0.0, 1.0);
+        let (lx, rx) = (cx + 30.0, cx + cw - 30.0);
+        let mid = cx + cw / 2.0;
+        // Row 1: TRIM A, MASTER, TRIM B
+        let ky = cy0 + 60.0;
+        for d in 0..2 {
+            let kx = if d == 0 { lx } else { rx };
+            let t = self.snap.trim[d];
+            let txt = format!("{:+.1} dB", 20.0 * t.max(0.001).log10());
+            if let Some(nv) = self.knob(kx, ky, 15.0, t / 2.0, 0.5, "TRIM", &txt, if d == 0 { ca } else { cb }) {
+                mixer.lock().unwrap().decks[d].trim = nv * 2.0;
+            }
+        }
+        let mv = self.snap.master;
+        if let Some(nv) = self.knob(mid, ky, 15.0, mv, 0.8, "MASTER", &format!("{:.0}%", mv * 100.0), a) {
+            mixer.lock().unwrap().master = nv;
+        }
+        // Row 2: channel faders with level meters, master meter in the middle
+        let fy = cy0 + 112.0;
+        let fh = 104.0;
+        for d in 0..2 {
+            let fx = if d == 0 { lx } else { rx };
+            let col = if d == 0 { ca } else { cb };
+            if let Some(nv) = self.vfader(fx + 4.0, fy, fh, self.snap.fader[d], 1.0, col) {
+                mixer.lock().unwrap().decks[d].fader = nv;
+            }
+            let mx_ = if d == 0 { fx + 22.0 } else { fx - 30.0 };
+            self.meter(mx_, fy, 6.0, fh, db_level(self.snap.level[d]));
+            draw_text(if d == 0 { "A" } else { "B" }, fx, fy + fh + 18.0, 14.0, col);
+        }
+        let peak = self.snap.scope.iter().fold(0f32, |m, v| m.max(v.abs()));
+        self.meter(mid - 8.0, fy, 6.0, fh, db_level(peak));
+        self.meter(mid + 2.0, fy, 6.0, fh, db_level(peak));
+        draw_text("M", mid - 5.0, fy + fh + 18.0, 13.0, Color::new(1.0, 1.0, 1.0, 0.5));
+        // Row 3: crossfader and its curve
+        let xy = cy0 + 254.0;
         let mut v = self.snap.xf;
-        draw_text("Crossfader", cx + 16.0, cy0 + 56.0, 16.0, WHITE);
-        if self.slider(cx + 16.0, cy0 + 78.0, cw - 32.0, &mut v, a) && manual {
+        if self.slider(cx + 16.0, xy, cw - 32.0, &mut v, a) && manual {
             mixer.lock().unwrap().xfader = v;
         }
-        draw_text("A", cx + 16.0, cy0 + 102.0, 14.0, WHITE);
-        draw_text("B", cx + cw - 26.0, cy0 + 102.0, 14.0, WHITE);
-        if self.button(cx + 16.0, cy0 + 118.0, cw - 32.0, 34.0, if manual { "Manual: ON" } else { "Manual: OFF" }, manual, a) {
+        let cur = self.snap.xf_curve;
+        let hw = (cw - 38.0) / 2.0;
+        if self.button(cx + 16.0, xy + 14.0, hw, 22.0, "Smooth", cur < 0.5, a) {
+            mixer.lock().unwrap().xf_curve = 0.0;
+        }
+        if self.button(cx + 22.0 + hw, xy + 14.0, hw, 22.0, "Cut", cur >= 0.5, a) {
+            mixer.lock().unwrap().xf_curve = 1.0;
+        }
+        // Row 4: manual / mix now
+        let by = cy0 + 296.0;
+        if self.button(cx + 16.0, by, hw, 26.0, if manual { "Manual" } else { "Auto" }, manual, a) {
             let mut m = mixer.lock().unwrap();
             m.manual = !m.manual;
             m.pending = None;
             drop(m);
             self.armed = None;
         }
-        if self.button(cx + 16.0, cy0 + 162.0, cw - 32.0, 34.0, "Mix now", false, a) {
+        if self.button(cx + 22.0 + hw, by, hw, 26.0, "Mix now", false, a) {
             self.skip();
-        }
-        let mut mv = self.snap.master;
-        draw_text("Master", cx + 16.0, cy0 + 232.0, 16.0, WHITE);
-        if self.slider(cx + 16.0, cy0 + 254.0, cw - 32.0, &mut mv, a) {
-            mixer.lock().unwrap().master = mv;
-        }
-        for d in 0..2 {
-            let lv = self.snap.level[d].min(1.0);
-            draw_rectangle(cx + 30.0 + d as f32 * 100.0, cy0 + 320.0 - 40.0 * lv, 14.0, 40.0 * lv + 1.0, Color::new(0.4, 1.0, 0.6, 0.9));
         }
         ends.max(cy0 + 340.0)
     }

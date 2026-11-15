@@ -267,6 +267,9 @@ pub struct Deck {
     pub lock_base: f64,
     /// Wanted beat offset to the other deck, in this deck's samples (0 = on the grid).
     pub phase_goal: f64,
+    /// Channel trim (input gain, 0..2) and channel volume fader (0..1), like a club mixer.
+    pub trim: f32,
+    pub fader: f32,
     lp1: f32,
     st: Stretch,
     s0: [f32; NL],
@@ -372,6 +375,8 @@ impl Deck {
             lock_auto: false,
             lock_base: 1.0,
             phase_goal: 0.0,
+            trim: 1.0,
+            fader: 1.0,
             lp1: 0.0,
             st: Stretch::new(),
             s0: [0.0; NL],
@@ -467,7 +472,8 @@ impl Deck {
             self.f1 = y;
             self.f2 = y;
         }
-        let out = y * tp.gain;
+        // Channel fader with an audio taper (fader^2), then trim.
+        let out = y * tp.gain * self.trim * self.fader * self.fader;
         self.level = (self.level * 0.9995).max(out.abs());
         (out, y * tp.echo)
     }
@@ -511,6 +517,8 @@ pub struct Mixer {
     mon_ph: f32,
     /// Snap to beat: jumps (cue, waveform clicks, play) keep the beat phase of the other deck.
     pub quantize: bool,
+    /// Crossfader curve: 0 = smooth (constant power) .. 1 = sharp cut (scratch style).
+    pub xf_curve: f32,
     sync_ctr: u32,
 }
 
@@ -552,6 +560,7 @@ impl Mixer {
             mon_b: (0.0, 0.0),
             mon_ph: 0.0,
             quantize: true,
+            xf_curve: 0.0,
             sync_ctr: 0,
         };
         m.set_sr(44100.0);
@@ -896,8 +905,9 @@ impl Mixer {
             let target = if t.inn == 1 { x } else { 1.0 - x };
             self.xfader = target;
         } else if self.manual {
-            tp[0].gain = (self.xfader * PI / 2.0).cos();
-            tp[1].gain = (self.xfader * PI / 2.0).sin();
+            let k = 1.0 + 15.0 * self.xf_curve;
+            tp[0].gain = (((1.0 - self.xfader) * PI / 2.0).sin() * k).min(1.0);
+            tp[1].gain = ((self.xfader * PI / 2.0).sin() * k).min(1.0);
         }
         let mut sum = 0f32;
         let mut send = 0f32;

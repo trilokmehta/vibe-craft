@@ -60,6 +60,9 @@ pub struct Snap {
     pub completed: u32,
     pub sync: [bool; 2],
     pub quantize: bool,
+    pub trim: [f32; 2],
+    pub fader: [f32; 2],
+    pub xf_curve: f32,
     /// Beat offset of each deck to the other one (ms), for the phase meter.
     pub phase_ms: [Option<f32>; 2],
     pub pcm: [Option<std::sync::Arc<Vec<f32>>>; 2],
@@ -140,6 +143,8 @@ pub struct App {
     /// Live mix: zoomed beat view on/off and its width in seconds.
     pub zoom: bool,
     pub zoom_secs: f32,
+    /// Knob being dragged: (key x, key y, mouse y at grab, value at grab).
+    pub knob_grab: Option<(i32, i32, f32, f32)>,
     /// Where the zoom view was drawn last frame (the mouse wheel zooms there instead of scrolling).
     pub zoom_rect: (f32, f32, f32, f32),
     pub drag: Option<(f32, u8)>,
@@ -229,6 +234,7 @@ impl App {
             drift_t: 0.0,
             zoom: false,
             zoom_secs: 4.0,
+            knob_grab: None,
             zoom_rect: (0.0, 0.0, 0.0, 0.0),
             drag: None,
             search: String::new(),
@@ -467,9 +473,11 @@ impl App {
         } else {
             in_pos
         };
+        let cached = if self.use_stems { self.stem_cache.iter().find(|c| c.0 == nt).map(|c| c.1.clone()) } else { None };
         {
             let mut m = mixer.lock().unwrap();
             let inn = 1 - act;
+            let same = m.decks[inn].track == Some(nt);
             let d = &mut m.decks[inn];
             d.pcm = Some(tin_audio);
             d.track = Some(nt);
@@ -485,8 +493,14 @@ impl App {
             d.loop_on = false;
             d.cues = [None; 4];
             d.ease = false;
-            d.stems = None;
-            d.sg = [1.0; crate::stems::NL];
+            // Same song re-planned: keep its layers and layer levels (no flicker).
+            // A new song takes its layers straight from the cache when they are ready.
+            if !same {
+                d.stems = cached;
+                d.sg = [1.0; crate::stems::NL];
+            } else if d.stems.is_none() {
+                d.stems = cached;
+            }
             m.pending = Some(Pending { deck_in: inn, trigger, start_pos: in_pos, in_rate, dur_secs: dur, style, out_bpm_eff: out_eff, script });
         }
         let why = if intro_quiet >= 2.0 { format!("{}; {} has a {:.0} s quiet intro", why, tin.title, intro_quiet) } else { why };
@@ -623,6 +637,8 @@ impl App {
             s.sync[d] = m.decks[d].sync || m.decks[d].lock_auto;
             s.phase_ms[d] = m.phase_ms(d);
             s.pcm[d] = m.decks[d].pcm.clone();
+            s.trim[d] = m.decks[d].trim;
+            s.fader[d] = m.decks[d].fader;
         }
         s.trans = m.trans.map(|t| (t.elapsed as f32 / t.total as f32, t.style, t.out, t.inn));
         s.paused = m.paused || (!m.decks[m.active].playing && m.trans.is_none());
@@ -632,6 +648,7 @@ impl App {
         s.sr = m.sr;
         s.completed = m.completed;
         s.quantize = m.quantize;
+        s.xf_curve = m.xf_curve;
         let n = m.scope.len();
         let mut sc = Vec::with_capacity(512);
         for i in 0..512 {
