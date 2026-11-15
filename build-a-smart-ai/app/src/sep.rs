@@ -2,7 +2,8 @@
 //!
 //! The model (~136 MB) is downloaded once into %LOCALAPPDATA%\VibeCraft\models.
 //! Songs are decoded again from their file in stereo at full quality, split in
-//! 7.8 s windows with 25% overlap, and the six model stems are folded into the
+//! 7.8 s windows with 25% overlap (GPU model + native FFT inverse STFT on the CPU,
+//! pipelined), and the six model stems are folded into the
 //! app's layers:  Vocals | Music (other + residual) | Bass | Drums | Melody (guitar + piano).
 //! Results are cached on disk as 16-bit so each song is only separated once.
 //! If anything fails the caller falls back to the DSP separator in stems.rs.
@@ -190,7 +191,7 @@ enum Engine {
     /// Whole model in one session (CPU).
     Single(ort::session::Session),
     /// Part A on the GPU, part B (inverse STFT) on the CPU; see split.rs.
-    Split { a: ort::session::Session, b: ort::session::Session, b_inputs: Vec<(String, i32)> },
+    Split { a: ort::session::Session, b: Option<ort::session::Session>, b_inputs: Vec<(String, i32)> },
 }
 
 fn part_paths() -> (PathBuf, PathBuf, PathBuf) {
@@ -251,18 +252,35 @@ fn split_engine() -> Result<Engine, String> {
             crate::split::save(&mb, &pb)?;
             let _ = std::fs::remove_file(untyped);
             std::fs::write(&pi, types.iter().map(|(n, t)| format!("{}\t{}\n", n, t)).collect::<String>()).map_err(|e| e.to_string())?;
-            let b = build_session_from(false, &pb)?;
-            return Ok(Engine::Split { a, b, b_inputs: types });
+            // Part B (ONNX inverse STFT) is only loaded if the native one cannot be used.
+            return Ok(Engine::Split { a, b: None, b_inputs: types });
         }
     };
-    let b = build_session_from(false, &pb)?;
-    Ok(Engine::Split { a, b, b_inputs })
+    // Part B (ONNX inverse STFT) is only loaded if the native one cannot be used.
+    Ok(Engine::Split { a, b: None, b_inputs })
 }
 
 static ENGINE: Mutex<Option<Engine>> = Mutex::new(None);
 
-/// Runs the model on one 7.8 s stereo window; returns the flat [6, 2, SEG] stems.
-fn infer(input: &[f32]) -> Result<Vec<f32>, String> {
+/// What one model window gives back: finished stems, or (GPU path) the spectrogram
+/// and time branch for the native inverse STFT, which runs on a CPU thread while
+/// the GPU works on the next window.
+enum Out {
+    Stems(Vec<f32>),
+    Spec { spec: Vec<f32>, xt: Vec<f32>, s: usize, c: usize, frames: usize, len: usize },
+}
+
+impl Out {
+    fn finish(self) -> Vec<f32> {
+        match self {
+            Out::Stems(v) => v,
+            Out::Spec { spec, xt, s, c, frames, len } => crate::istft::part_b(&spec, &xt, s, c, frames, len),
+        }
+    }
+}
+
+/// Runs the model on one 7.8 s stereo window ([6, 2, SEG] stems once finished).
+fn infer(input: &[f32]) -> Result<Out, String> {
     let mut g = ENGINE.lock().unwrap();
     if g.is_none() {
         let mut init_err = None;
@@ -297,10 +315,38 @@ fn infer(input: &[f32]) -> Result<Vec<f32>, String> {
         Engine::Single(s) => {
             let outs = s.run(ort::inputs!["mix" => mk()?]).map_err(|e| e.to_string())?;
             let (_, d) = outs["stems"].try_extract_tensor::<f32>().map_err(|e| e.to_string())?;
-            Ok(d.to_vec())
+            Ok(Out::Stems(d.to_vec()))
         }
         Engine::Split { a, b, b_inputs } => {
+            let ta = std::time::Instant::now();
             let mut outs_a = a.run(ort::inputs!["mix" => mk()?]).map_err(|e| e.to_string())?;
+            let ta = ta.elapsed().as_secs_f32();
+            let check = std::env::var("VC_ISTFT_CHECK").is_ok();
+            // Native inverse STFT (fast). The ONNX part B is only a fallback and for checking.
+            let native = (|| -> Option<Out> {
+                if std::env::var("VC_ONNX_ISTFT").is_ok() {
+                    return None;
+                }
+                let (shp, spec) = outs_a.get("/Pad_2_output_0")?.try_extract_tensor::<f32>().ok()?;
+                let (shx, xt) = outs_a.get("/Add_4_output_0")?.try_extract_tensor::<f32>().ok()?;
+                let (shp, shx): (Vec<i64>, Vec<i64>) = (shp.to_vec(), shx.to_vec());
+                if shp.len() != 6 || shp[3] != 2 || shp[4] as usize != crate::istft::NFFT / 2 + 1 || shx.len() != 4 || shx[3] as usize != SEG {
+                    return None;
+                }
+                Some(Out::Spec { spec: spec.to_vec(), xt: xt.to_vec(), s: shp[1] as usize, c: shp[2] as usize, frames: shp[5] as usize, len: shx[3] as usize })
+            })();
+            if std::env::var("VC_LOG").is_ok() {
+                eprintln!("  model (GPU part) {:.2}s", ta);
+            }
+            if let (Some(o), false) = (native.as_ref(), check) {
+                let _ = o;
+                return Ok(native.unwrap());
+            }
+            let native = native.map(|o| o.finish());
+            if b.is_none() {
+                let (_, pb, _) = part_paths();
+                *b = Some(build_session_from(false, &pb)?);
+            }
             let mut feed: Vec<(String, ort::session::SessionInputValue)> = Vec::new();
             for (name, _) in b_inputs.iter() {
                 if name == "mix" {
@@ -310,9 +356,17 @@ fn infer(input: &[f32]) -> Result<Vec<f32>, String> {
                     feed.push((name.clone(), v.into()));
                 }
             }
-            let outs = b.run(feed).map_err(|e| e.to_string())?;
+            let outs = b.as_mut().unwrap().run(feed).map_err(|e| e.to_string())?;
             let (_, d) = outs["stems"].try_extract_tensor::<f32>().map_err(|e| e.to_string())?;
-            Ok(d.to_vec())
+            if let Some(v) = &native {
+                let (mut e, mut t) = (0f64, 0f64);
+                for (x, y) in v.iter().zip(d.iter()) {
+                    e += ((x - y) as f64).powi(2);
+                    t += (*y as f64).powi(2);
+                }
+                eprintln!("  istft check: native vs ONNX rel err {:.4}%", 100.0 * (e / t.max(1e-12)).sqrt());
+            }
+            Ok(Out::Stems(d.to_vec()))
         }
     };
     if res.is_err() && matches!(g.as_ref(), Some(Engine::Split { .. })) {
@@ -440,47 +494,75 @@ fn resample(x: &[f32], from: u32, to: u32) -> Vec<f32> {
 /// arrives, which halves the memory this needs).
 fn run_model(l: &[f32], r: &[f32], progress: &AtomicU32, cancel: &std::sync::atomic::AtomicBool) -> Result<Vec<Vec<f32>>, String> {
     let total = l.len();
-    let overlap = SEG / 4;
+    // 25% overlap (the HT-Demucs default). Less is faster but changes the bass and
+    // drums noticeably; VC_OVL=8 tries 1/8.
+    let overlap = SEG / std::env::var("VC_OVL").ok().and_then(|v| v.parse().ok()).unwrap_or(4);
     let stride = SEG - overlap;
-    let chunks = ((total + stride - 1) / stride).max(1);
+    let chunks = ((total.saturating_sub(overlap) + stride - 1) / stride).max(1);
     let mut win = vec![1.0f32; SEG];
     for i in 0..overlap {
-        let f = i as f32 / (overlap - 1) as f32;
+        let f = (i as f32 + 0.5) / overlap as f32;
         win[i] = f;
         win[SEG - 1 - i] = f;
     }
     let mut out: Vec<Vec<f32>> = (0..6).map(|_| vec![0f32; total]).collect();
     let mut wsum = vec![0f32; total];
-    let mut input = vec![0f32; 2 * SEG];
-    for c in 0..chunks {
-        if cancel.load(Ordering::Relaxed) {
-            return Err("cancelled".into());
-        }
-        let start = c * stride;
-        let end = (start + SEG).min(total);
-        let clen = end - start;
-        input.iter_mut().for_each(|v| *v = 0.0);
-        input[..clen].copy_from_slice(&l[start..end]);
-        input[SEG..SEG + clen].copy_from_slice(&r[start..end]);
-        let stems: Vec<f32> = infer(&input)?;
-        if stems.len() < 6 * 2 * SEG {
-            return Err("unexpected model output size".into());
-        }
-        for s in 0..6 {
-            let (bl, br) = (s * 2 * SEG, (s * 2 + 1) * SEG);
-            let o = &mut out[s];
-            for i in 0..clen {
-                o[start + i] += 0.5 * (stems[bl + i] + stems[br + i]) * win[i];
+    // The GPU runs window c+1 while a CPU thread finishes window c (inverse STFT + overlap-add).
+    let (tx, rx) = std::sync::mpsc::sync_channel::<(usize, usize, Out)>(1);
+    std::thread::scope(|sc| -> Result<(), String> {
+        let (out, wsum, win) = (&mut out, &mut wsum, &win);
+        let worker = sc.spawn(move || -> Result<(), String> {
+            for (start, clen, o) in rx {
+                let stems = o.finish();
+                if stems.len() < 6 * 2 * SEG {
+                    return Err("unexpected model output size".into());
+                }
+                for s in 0..6 {
+                    let (bl, br) = (s * 2 * SEG, (s * 2 + 1) * SEG);
+                    let o = &mut out[s][start..start + clen];
+                    for i in 0..clen {
+                        o[i] += 0.5 * (stems[bl + i] + stems[br + i]) * win[i];
+                    }
+                }
+                for i in 0..clen {
+                    wsum[start + i] += win[i];
+                }
+            }
+            Ok(())
+        });
+        let mut input = vec![0f32; 2 * SEG];
+        let mut res = Ok(());
+        for c in 0..chunks {
+            if cancel.load(Ordering::Relaxed) {
+                res = Err("cancelled".into());
+                break;
+            }
+            let start = c * stride;
+            let end = (start + SEG).min(total);
+            let clen = end - start;
+            input.iter_mut().for_each(|v| *v = 0.0);
+            input[..clen].copy_from_slice(&l[start..end]);
+            input[SEG..SEG + clen].copy_from_slice(&r[start..end]);
+            match infer(&input) {
+                Ok(o) => {
+                    if tx.send((start, clen, o)).is_err() {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    res = Err(e);
+                    break;
+                }
+            }
+            progress.store(((c + 1) * 97 / chunks) as u32, Ordering::Relaxed);
+            if std::env::var("VC_LOG").is_ok() {
+                eprintln!("[{:7.1}s] sep: window {}/{} on {}", uptime(), c + 1, chunks, device());
             }
         }
-        for i in 0..clen {
-            wsum[start + i] += win[i];
-        }
-        progress.store(((c + 1) * 97 / chunks) as u32, Ordering::Relaxed);
-        if std::env::var("VC_LOG").is_ok() {
-            eprintln!("[{:7.1}s] sep: window {}/{} on {}", uptime(), c + 1, chunks, device());
-        }
-    }
+        drop(tx);
+        let w = worker.join().map_err(|_| "separation worker panicked".to_string())?;
+        res.and(w)
+    })?;
     for s in out.iter_mut() {
         for (v, w) in s.iter_mut().zip(&wsum) {
             *v /= w.max(1e-8);

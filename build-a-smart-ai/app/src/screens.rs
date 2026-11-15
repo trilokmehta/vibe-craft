@@ -50,7 +50,8 @@ impl App {
         y += 166.0;
         rrect(lx, y, lw, 376.0, 14.0, Color::new(1.0, 1.0, 1.0, 0.05));
         self.tx("mix", "LIVE MIX", lx + 16.0, y + 26.0, 16.0, accent);
-        draw_text("Drag on a song to play only that section. Click a point chip to choose where to mix.", lx + 100.0, y + 26.0, 14.0, Color::new(1.0, 1.0, 1.0, 0.5));
+        draw_text(&fit("Drag on a song to play only that section. Click a point chip to choose where to mix.", 14.0, lw - 420.0), lx + 100.0, y + 26.0, 14.0, Color::new(1.0, 1.0, 1.0, 0.5));
+        self.live_tools(lx, y + 8.0, lw - 16.0, accent);
         let ww = lw - 32.0;
         let wx = lx + 16.0;
         let cur_pts = top_out_points(t, self.snap.pos[a], 8);
@@ -132,6 +133,9 @@ impl App {
         draw_text(&fit(&detail, 16.0, ww), wx, y + 332.0, 16.0, Color::new(1.0, 1.0, 1.0, 0.6));
         draw_text("Orange: possible exits   Blue: possible entries   Green: chosen mix start   Red: mix end   Shaded: selected section   Pink: DJ preview (Ctrl+drag the lower wave)", wx, y + 358.0, 14.0, Color::new(1.0, 1.0, 1.0, 0.4));
         y += 392.0;
+        if self.zoom {
+            y += self.beat_zoom(lx, y, lw, accent) + 16.0;
+        }
         if let Some(sc) = self.armed.as_ref().and_then(|ar| ar.script) {
             y = self.layer_timeline(&sc, prog, lx, y, lw, accent);
         }
@@ -234,6 +238,7 @@ impl App {
         let ly2 = (if narrow { left_end } else { HDR + 14.0 - self.scroll }) + 534.0;
         let lh = self.layers_panel(rx, ly2, rw);
         ry = ry.max(ly2 + lh + 10.0);
+        ry += self.queue_panel(rx, ry, rw, accent) + 10.0;
         let mut bottom = left_end.max(ry);
         if self.advanced {
             bottom = self.pro_decks(pad, bottom + 4.0, w - 2.0 * pad);
@@ -265,14 +270,28 @@ impl App {
     fn deck_action(&mut self, d: usize, k: usize) {
         let mixer = self.mixer.clone();
         let mut m = mixer.lock().unwrap();
+        let q = m.quantize;
         match k {
-            0 => m.decks[d].playing = !m.decks[d].playing,
+            0 => {
+                let start = !m.decks[d].playing;
+                m.decks[d].playing = start;
+                // Snap to beat: a deck started while the other plays comes in on its beat.
+                if start && q {
+                    m.snap_phase(d, false);
+                }
+            }
             1 => {
                 if let Some(c) = m.decks[d].cues[0] {
                     m.decks[d].pos = c;
+                    if q && m.decks[d].playing {
+                        m.snap_phase(d, false);
+                    }
                 } else {
+                    let o = m.decks[d].origin;
+                    let spb = m.decks[d].spb();
                     let p = m.decks[d].pos;
-                    m.decks[d].cues[0] = Some(p);
+                    // A cue set with Snap on sits exactly on the nearest beat.
+                    m.decks[d].cues[0] = Some(if q { o + ((p - o) / spb).round() * spb } else { p });
                 }
             }
             2 => {
@@ -288,24 +307,39 @@ impl App {
                 }
             }
             3 => {
-                let target = m.decks[1 - d].eff_bpm();
-                let r = (target / m.decks[d].bpm) as f64;
-                m.decks[d].rate = r.clamp(0.85, 1.15);
-                m.decks[d].target_rate = m.decks[d].rate;
-                m.decks[d].ease = false;
+                if m.decks[d].sync {
+                    m.decks[d].sync = false;
+                    drop(m);
+                    self.say("Beat sync off for this deck");
+                } else if m.sync_deck(d) {
+                    drop(m);
+                    self.say("Beat sync on: tempo and beats locked to the other deck");
+                } else {
+                    // Other deck silent: match its tempo at least.
+                    let target = m.decks[1 - d].eff_bpm();
+                    let r = (target / m.decks[d].bpm) as f64;
+                    m.decks[d].rate = r.clamp(0.85, 1.15);
+                    m.decks[d].target_rate = m.decks[d].rate;
+                    m.decks[d].ease = false;
+                    drop(m);
+                    self.say("Tempo matched - play the other deck to lock the beats too");
+                }
             }
             4 => {
+                m.decks[d].sync = false;
                 m.decks[d].rate = (m.decks[d].rate - 0.005).max(0.8);
                 m.decks[d].target_rate = m.decks[d].rate;
                 m.decks[d].ease = false;
             }
             _ => {
+                m.decks[d].sync = false;
                 m.decks[d].rate = (m.decks[d].rate + 0.005).min(1.2);
                 m.decks[d].target_rate = m.decks[d].rate;
                 m.decks[d].ease = false;
             }
         }
     }
+
 
     fn pro_decks(&mut self, x: f32, y: f32, w: f32) -> f32 {
         let lib = self.lib.clone();
@@ -350,9 +384,9 @@ impl App {
             }
             let by = py + 156.0;
             let bw = (pw - 32.0 - 5.0 * 6.0) / 6.0;
-            let labels = [if self.snap.playing[d] { "Pause" } else { "Play" }, "Cue", if self.snap.loop_on[d] { "Loop off" } else { "Loop 4" }, "Sync", "Tempo -", "Tempo +"];
+            let labels = [if self.snap.playing[d] { "Pause" } else { "Play" }, "Cue", if self.snap.loop_on[d] { "Loop off" } else { "Loop 4" }, if self.snap.sync[d] { "Synced" } else { "Sync" }, "Tempo -", "Tempo +"];
             for (k, l) in labels.iter().enumerate() {
-                let active = (k == 0 && self.snap.playing[d]) || (k == 2 && self.snap.loop_on[d]);
+                let active = (k == 0 && self.snap.playing[d]) || (k == 2 && self.snap.loop_on[d]) || (k == 3 && self.snap.sync[d]);
                 if self.button(px + 16.0 + k as f32 * (bw + 6.0), by, bw, 32.0, l, active, accent) {
                     self.deck_action(d, k);
                 }
@@ -442,7 +476,7 @@ impl App {
             rrect(x, y, rw, hh - 8.0, 12.0, Color::new(1.0, 1.0, 1.0, if pinned { 0.12 } else { 0.06 }));
             art(x + 10.0, y + 8.0, 50.0, t);
             let tx = x + 74.0;
-            let btn_w = if w < 760.0 { 0.0 } else { 34.0 * 3.0 + 80.0 + 18.0 };
+            let btn_w = if w < 760.0 { 0.0 } else { 86.0 + 56.0 + 34.0 * 3.0 + 70.0 + 30.0 };
             let mw = rw - 90.0 - btn_w;
             draw_text(&fit(&format!("{}. {}", i + 1, t.title), 22.0, mw), tx, y + 26.0, 22.0, WHITE);
             let info = format!("{}  |  {:.0} BPM  |  {}  |  E{:.0}%{}", t.artist, t.a.bpm, camelot_str(t.a.key, t.a.minor), t.energy * 100.0, if manual { "  |  added by you" } else { "" });
@@ -451,10 +485,10 @@ impl App {
             draw_text(&fit(&why, 14.0, mw), tx, y + 62.0, 14.0, Color::new(accent.r, accent.g, accent.b, 0.8));
             if btn_w > 0.0 {
                 let mut cx = x + rw - btn_w - 6.0;
-                let labels = ["^", "v", if pinned { "Pinned" } else { "Pin" }, "x"];
-                let ws = [34.0, 34.0, 80.0, 34.0];
+                let labels = ["Mix now", "Next", "^", "v", if pinned { "Pinned" } else { "Pin" }, "x"];
+                let ws = [86.0, 56.0, 34.0, 34.0, 70.0, 34.0];
                 for (k, l) in labels.iter().enumerate() {
-                    if self.button(cx, y + 18.0, ws[k], 30.0, l, k == 2 && pinned, accent) {
+                    if self.button(cx, y + 18.0, ws[k], 30.0, l, k == 4 && pinned, accent) {
                         action = Some((i, k));
                     }
                     cx += ws[k] + 6.0;
@@ -465,10 +499,19 @@ impl App {
         self.content_h = y + self.scroll - HDR + 20.0;
         if let Some((i, k)) = action {
             match k {
-                0 if i > 0 => self.queue.swap(i, i - 1),
-                1 if i + 1 < self.queue.len() => self.queue.swap(i, i + 1),
-                2 => self.queue[i].pinned = !self.queue[i].pinned,
-                3 => {
+                0 => {
+                    let t = self.queue[i].track;
+                    self.play_now(t);
+                }
+                1 if i > 0 => {
+                    let it = self.queue.remove(i);
+                    self.queue.insert(0, it);
+                    self.say("Moved to next - the DJ mixes into it after this song");
+                }
+                2 if i > 0 => self.queue.swap(i, i - 1),
+                3 if i + 1 < self.queue.len() => self.queue.swap(i, i + 1),
+                4 => self.queue[i].pinned = !self.queue[i].pinned,
+                5 => {
                     self.queue.remove(i);
                     self.refill();
                 }
@@ -702,12 +745,8 @@ impl App {
                 if (cx - sx).abs() > 6.0 {
                     self.set_section(tid, to_pos(sx.min(cx)), to_pos(sx.max(cx)));
                 } else if which == 0 {
-                    let mixer = self.mixer.clone();
-                    let mut m = mixer.lock().unwrap();
-                    let act = m.active;
-                    m.decks[act].pos = to_pos(cx);
-                    drop(m);
-                    self.dirty = true;
+                    let act = self.snap.active;
+                    self.jump_deck(act, to_pos(cx));
                 } else {
                     let t = &self.lib[tid];
                     let end = (t.a.origin + t.a.last_bar as f64 * 4.0 * SR as f64 * 60.0 / t.a.bpm as f64).min(len);

@@ -58,6 +58,11 @@ pub struct Snap {
     pub sg: [[f32; crate::stems::NL]; 2],
     pub sr: f32,
     pub completed: u32,
+    pub sync: [bool; 2],
+    pub quantize: bool,
+    /// Beat offset of each deck to the other one (ms), for the phase meter.
+    pub phase_ms: [Option<f32>; 2],
+    pub pcm: [Option<std::sync::Arc<Vec<f32>>>; 2],
 }
 
 #[derive(Clone)]
@@ -130,6 +135,13 @@ pub struct App {
     pub use_stems: bool,
     pub sections: Vec<Option<(f64, f64)>>,
     pub forced_out: Option<(usize, f64)>,
+    /// Seconds until the next live beat check during a mix.
+    pub drift_t: f32,
+    /// Live mix: zoomed beat view on/off and its width in seconds.
+    pub zoom: bool,
+    pub zoom_secs: f32,
+    /// Where the zoom view was drawn last frame (the mouse wheel zooms there instead of scrolling).
+    pub zoom_rect: (f32, f32, f32, f32),
     pub drag: Option<(f32, u8)>,
     pub search: String,
     pub loader: Option<std::sync::Arc<Mutex<crate::tracks::Progress>>>,
@@ -214,6 +226,10 @@ impl App {
             use_stems: true,
             sections: Vec::new(),
             forced_out: None,
+            drift_t: 0.0,
+            zoom: false,
+            zoom_secs: 4.0,
+            zoom_rect: (0.0, 0.0, 0.0, 0.0),
             drag: None,
             search: String::new(),
             loader: None,
@@ -604,6 +620,9 @@ impl App {
             s.loop_on[d] = m.decks[d].loop_on;
             s.stems[d] = m.decks[d].stems.is_some();
             s.sg[d] = m.decks[d].sg;
+            s.sync[d] = m.decks[d].sync || m.decks[d].lock_auto;
+            s.phase_ms[d] = m.phase_ms(d);
+            s.pcm[d] = m.decks[d].pcm.clone();
         }
         s.trans = m.trans.map(|t| (t.elapsed as f32 / t.total as f32, t.style, t.out, t.inn));
         s.paused = m.paused || (!m.decks[m.active].playing && m.trans.is_none());
@@ -612,6 +631,7 @@ impl App {
         s.manual = m.manual;
         s.sr = m.sr;
         s.completed = m.completed;
+        s.quantize = m.quantize;
         let n = m.scope.len();
         let mut sc = Vec::with_capacity(512);
         for i in 0..512 {
@@ -638,6 +658,7 @@ impl App {
         }
         self.snapshot();
         self.manage_stems();
+        self.drift_check(dt);
         if self.snap.completed > self.seen_completed {
             self.seen_completed = self.snap.completed;
             self.on_done();
@@ -828,5 +849,41 @@ impl App {
             *s = None;
         }
         self.dirty = true;
+    }
+}
+
+impl App {
+    /// During a beat-matched mix, listens to both songs every 2 s (drum-hit
+    /// cross-correlation over the last 3 s) and nudges the beat lock so the real
+    /// kicks stay together even where the detected tempo is a hair off.
+    fn drift_check(&mut self, dt: f32) {
+        self.drift_t -= dt;
+        if self.drift_t > 0.0 {
+            return;
+        }
+        self.drift_t = 2.0;
+        let mixer = self.mixer.clone();
+        let (a, ap, ar, b, bp, br, beat, inn) = {
+            let m = mixer.lock().unwrap();
+            let Some(t) = m.trans else { return };
+            let (o, i) = (&m.decks[t.out], &m.decks[t.inn]);
+            if !i.lock_auto || !o.playing || !i.playing {
+                return;
+            }
+            let (Some(a), Some(b)) = (o.pcm.clone(), i.pcm.clone()) else { return };
+            (a, o.pos, o.rate, b, i.pos, i.rate, 60.0 / o.eff_bpm().max(40.0) as f64, t.inn)
+        };
+        let win = 3.0f64;
+        let a0 = ap - win * SR as f64 * ar;
+        let b0 = bp - win * SR as f64 * br;
+        if a0 < 0.0 || b0 < 0.0 {
+            return;
+        }
+        let off = crate::dj::align_entry(&a, a0, ar, &b, b0, br, beat, win) - b0;
+        let secs = off / (SR as f64 * br);
+        // Ignore tiny offsets (5 ms grid) and anything near half a beat (ambiguous).
+        if secs.abs() >= 0.006 && secs.abs() < beat * 0.25 {
+            mixer.lock().unwrap().nudge_phase(inn, off * 0.5);
+        }
     }
 }

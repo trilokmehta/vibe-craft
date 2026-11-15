@@ -259,6 +259,14 @@ pub struct Deck {
     pub cues: [Option<f64>; 4],
     pub level: f32,
     pub ease: bool,
+    /// Beat sync: keep this deck locked (tempo and beat phase) to the other playing deck.
+    pub sync: bool,
+    /// Automatic lock for the incoming deck during a beat-matched mix.
+    pub lock_auto: bool,
+    /// Rate that matches the other deck's tempo while locked (before phase correction).
+    pub lock_base: f64,
+    /// Wanted beat offset to the other deck, in this deck's samples (0 = on the grid).
+    pub phase_goal: f64,
     lp1: f32,
     st: Stretch,
     s0: [f32; NL],
@@ -360,6 +368,10 @@ impl Deck {
             cues: [None; 4],
             level: 0.0,
             ease: false,
+            sync: false,
+            lock_auto: false,
+            lock_base: 1.0,
+            phase_goal: 0.0,
             lp1: 0.0,
             st: Stretch::new(),
             s0: [0.0; NL],
@@ -497,6 +509,9 @@ pub struct Mixer {
     mon_a: (f32, f32),
     mon_b: (f32, f32),
     mon_ph: f32,
+    /// Snap to beat: jumps (cue, waveform clicks, play) keep the beat phase of the other deck.
+    pub quantize: bool,
+    sync_ctr: u32,
 }
 
 impl Mixer {
@@ -536,6 +551,8 @@ impl Mixer {
             mon_a: (0.0, 0.0),
             mon_b: (0.0, 0.0),
             mon_ph: 0.0,
+            quantize: true,
+            sync_ctr: 0,
         };
         m.set_sr(44100.0);
         m
@@ -694,7 +711,130 @@ impl Mixer {
         }
     }
 
+    /// Beat relation of deck `s` to the other deck while that one plays:
+    /// (rate that matches its tempo, samples `s` must move forward to sit on its beat
+    /// grid, length of one alignment unit in `s` samples). Half and double time are
+    /// matched to whichever needs the smaller tempo change. `bars` aligns downbeats
+    /// (one 4-beat bar) instead of single beats.
+    pub fn phase_target(&self, s: usize, bars: bool) -> Option<(f64, f64, f64)> {
+        let m = 1 - s;
+        let (ds, dm) = (&self.decks[s], &self.decks[m]);
+        if !dm.playing || dm.pcm.is_none() || ds.pcm.is_none() {
+            return None;
+        }
+        let em = dm.eff_bpm() as f64;
+        let bs = ds.bpm as f64;
+        if em < 30.0 || bs < 30.0 {
+            return None;
+        }
+        let mut mult = 1.0f64;
+        for c in [0.5f64, 2.0] {
+            if (em * c / bs).ln().abs() < (em * mult / bs).ln().abs() {
+                mult = c;
+            }
+        }
+        let rate = em * mult / bs;
+        let bm = (dm.pos - dm.origin) / dm.spb();
+        let bsl = (ds.pos - ds.origin) / ds.spb();
+        let k = if bars { 4.0 } else { 1.0 };
+        // Phase over the longer of the two beats (in master beats and slave beats).
+        let (pm, ps, unit_beats) = if mult >= 1.0 { ((bm / k).rem_euclid(1.0), (bsl / (mult * k)).rem_euclid(1.0), mult * k) } else { ((bm * mult / k).rem_euclid(1.0), (bsl / k).rem_euclid(1.0), k) };
+        let mut e = pm - ps;
+        if e > 0.5 {
+            e -= 1.0;
+        } else if e < -0.5 {
+            e += 1.0;
+        }
+        let unit = unit_beats * ds.spb();
+        Some((rate, e * unit, unit))
+    }
+
+    /// Jumps deck `d` onto the other deck's beat (or bar) phase. Returns false if
+    /// there is nothing to line up with.
+    pub fn snap_phase(&mut self, d: usize, bars: bool) -> bool {
+        match self.phase_target(d, bars) {
+            Some((_, mv, unit)) => {
+                let len = self.decks[d].len();
+                let dk = &mut self.decks[d];
+                // Stay inside the song by a whole unit, so the phase is still right.
+                let mut p = dk.pos + mv;
+                if p < 0.0 {
+                    p += unit;
+                }
+                if p > len - 1.0 {
+                    p -= unit;
+                }
+                dk.pos = p.clamp(0.0, (len - 1.0).max(0.0));
+                dk.need_reset = true;
+                dk.declick = 192;
+                dk.phase_goal = 0.0;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Manual Sync: match tempo, jump onto the other deck's bar, and stay locked.
+    pub fn sync_deck(&mut self, d: usize) -> bool {
+        let Some((rate, _, _)) = self.phase_target(d, true) else { return false };
+        self.snap_phase(d, true);
+        let dk = &mut self.decks[d];
+        dk.rate = rate;
+        dk.target_rate = rate;
+        dk.lock_base = rate;
+        dk.ease = false;
+        dk.sync = true;
+        true
+    }
+
+    /// Shift the beat lock of deck `d` by `samples` (positive = later in its song).
+    /// The deck glides there by bending its tempo slightly; no audible jump.
+    pub fn nudge_phase(&mut self, d: usize, samples: f64) {
+        self.decks[d].phase_goal -= samples;
+    }
+
+    /// Phase-locked loop, run every 128 frames: holds each locked deck on the other
+    /// deck's beat grid (plus its wanted offset) with a small tempo bend (max 4%, pitch stays).
+    fn sync_tick(&mut self) {
+        for s in 0..2 {
+            let in_mix = self.trans.map(|t| t.inn == s).unwrap_or(false);
+            if self.decks[s].lock_auto && !in_mix {
+                self.decks[s].lock_auto = false;
+            }
+            let manual = self.decks[s].sync;
+            let auto = self.decks[s].lock_auto;
+            if !(manual || auto) || !self.decks[s].playing {
+                continue;
+            }
+            let Some((rate, err, unit)) = self.phase_target(s, false) else { continue };
+            // Manual lock follows the other deck's tempo; in a mix the DJ's planned rate holds.
+            let base = if manual && !auto { rate } else { self.decks[s].lock_base };
+            let mut e = err - self.decks[s].phase_goal;
+            e -= (e / unit).round() * unit;
+            // Seconds of offset in the song's own time; settles in about a second.
+            let secs = e / SR as f64;
+            let bend = (secs * 1.5).clamp(-0.04, 0.04);
+            let dk = &mut self.decks[s];
+            dk.lock_base = base;
+            dk.rate = base * (1.0 + bend);
+            dk.target_rate = dk.rate;
+            dk.ease = false;
+        }
+    }
+
+    /// Beat offset of the incoming / locked deck to the other deck, in milliseconds
+    /// (for the phase meter). None when the decks cannot be compared.
+    pub fn phase_ms(&self, d: usize) -> Option<f32> {
+        let (_, mv, _) = self.phase_target(d, false)?;
+        Some((-mv / SR as f64 / self.decks[d].rate.max(0.1) * 1000.0) as f32)
+    }
+
     fn tick(&mut self) {
+        self.sync_ctr += 1;
+        if self.sync_ctr >= 128 {
+            self.sync_ctr = 0;
+            self.sync_tick();
+        }
         if let Some(p) = self.pending {
             if self.trans.is_none() {
                 let a = self.active;
@@ -722,6 +862,20 @@ impl Mixer {
         let beat = 60.0 / p.out_bpm_eff.max(40.0);
         self.delay = (((beat * 0.75) * self.sr) as usize).clamp(1000, self.dl.len() - 1);
         self.trans = Some(Trans { out, inn, total: (p.dur_secs * self.sr).max(1.0) as u32, elapsed: 0, style: p.style, script: p.script });
+        // A mix hands over control: no manual lock on either deck from here on.
+        self.decks[out].sync = false;
+        self.decks[inn].sync = false;
+        // Beat-matched mix: lock the incoming deck to the outgoing beat so the kicks
+        // never drift apart, holding the alignment the DJ chose for the entry.
+        self.decks[inn].lock_auto = false;
+        if let Some((rate, err, _)) = self.phase_target(inn, false) {
+            if (rate / p.in_rate - 1.0).abs() < 0.003 {
+                let d = &mut self.decks[inn];
+                d.lock_auto = true;
+                d.lock_base = p.in_rate;
+                d.phase_goal = err;
+            }
+        }
         self.pending = None;
     }
 
@@ -822,6 +976,43 @@ mod tests {
         m.decks[0].playing = true;
         m.decks[1].pos = 1000.0;
         m
+    }
+
+    #[test]
+    fn sync_locks_tempo_and_beat_phase() {
+        let mut m = mixer_with_decks();
+        m.decks[0].bpm = 124.0;
+        m.decks[0].rate = 1.0;
+        m.decks[1].bpm = 120.0;
+        m.decks[1].playing = true;
+        m.decks[1].pos = 5000.0;
+        m.decks[1].rate = 1.0;
+        m.decks[0].pos = 30000.0;
+        assert!(m.sync_deck(1));
+        // tempo matched, and on the bar right after the jump
+        assert!((m.decks[1].eff_bpm() - 124.0).abs() < 0.01);
+        assert!(m.phase_ms(1).unwrap().abs() < 1.0);
+        // push it a third of a beat off: the lock pulls it back without a jump
+        m.decks[1].pos += 0.3 * m.decks[1].spb();
+        m.decks[1].need_reset = true;
+        let before = m.phase_ms(1).unwrap().abs();
+        assert!(before > 100.0);
+        m.render_virtual(6.0);
+        let after = m.phase_ms(1).unwrap().abs();
+        assert!(after < 5.0, "phase {} ms -> {} ms", before, after);
+        assert!((m.decks[1].eff_bpm() - 124.0).abs() < 0.5);
+    }
+
+    #[test]
+    fn sync_handles_double_time() {
+        let mut m = mixer_with_decks();
+        m.decks[0].bpm = 70.0;
+        m.decks[1].bpm = 138.0;
+        m.decks[1].playing = true;
+        assert!(m.sync_deck(1));
+        assert!((m.decks[1].eff_bpm() - 140.0).abs() < 0.01);
+        m.render_virtual(3.0);
+        assert!(m.phase_ms(1).unwrap().abs() < 5.0);
     }
 
     #[test]

@@ -457,6 +457,8 @@ impl App {
         }
         let fy = h - FTR;
         draw_rectangle(0.0, fy, w, FTR, Color::new(0.04, 0.04, 0.06, 1.0));
+        let ver = concat!("v", env!("CARGO_PKG_VERSION"));
+        draw_text(ver, w - tw(ver, 13.0) - 10.0, h - 8.0, 13.0, Color::new(1.0, 1.0, 1.0, 0.4));
         let a = self.snap.active;
         let len = self.snap.len[a].max(1.0);
         let pos_frac = (self.snap.pos[a] / len).clamp(0.0, 1.0) as f32;
@@ -678,7 +680,13 @@ impl App {
             self.down = false;
         }
         let wy = mouse_wheel().1;
-        if wy != 0.0 && !under_menu {
+        let (zx, zy, zw, zh) = self.zoom_rect;
+        let over_zoom = self.tab == 1 && self.zoom && zw > 0.0 && self.mx >= zx && self.mx <= zx + zw && self.my >= zy && self.my <= zy + zh;
+        self.zoom_rect = (0.0, 0.0, 0.0, 0.0);
+        if wy != 0.0 && over_zoom {
+            // Wheel over the beat zoom: zoom in (up) or out (down).
+            self.zoom_secs = (self.zoom_secs * if wy > 0.0 { 0.8 } else { 1.25 }).clamp(0.5, 32.0);
+        } else if wy != 0.0 && !under_menu {
             self.scroll -= wy.signum() * 50.0;
         }
         let max_scroll = (self.content_h - (h - HDR - FTR)).max(0.0);

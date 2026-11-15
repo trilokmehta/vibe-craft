@@ -16,7 +16,7 @@ pub struct Stems {
     pub ai: bool,
 }
 
-struct Fft {
+pub(crate) struct Fft {
     n: usize,
     rev: Vec<usize>,
     cs: Vec<f32>,
@@ -24,7 +24,7 @@ struct Fft {
 }
 
 impl Fft {
-    fn new(n: usize) -> Fft {
+    pub(crate) fn new(n: usize) -> Fft {
         let bits = n.trailing_zeros();
         let rev = (0..n).map(|i| (i.reverse_bits() >> (usize::BITS - bits)) as usize).collect();
         let cs = (0..n / 2).map(|k| (2.0 * PI * k as f32 / n as f32).cos()).collect();
@@ -32,7 +32,7 @@ impl Fft {
         Fft { n, rev, cs, sn }
     }
 
-    fn run(&self, re: &mut [f32], im: &mut [f32], inverse: bool) {
+    pub(crate) fn run(&self, re: &mut [f32], im: &mut [f32], inverse: bool) {
         let n = self.n;
         for i in 0..n {
             let j = self.rev[i];

@@ -4,6 +4,8 @@ mod engine;
 mod screens;
 mod stemctl;
 mod stems;
+mod istft;
+mod livemix;
 mod tracks;
 mod ui;
 mod logo;

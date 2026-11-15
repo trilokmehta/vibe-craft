@@ -21,6 +21,14 @@ impl App {
     pub fn manage_stems(&mut self) {
         let mixer = self.mixer.clone();
         if !self.use_stems {
+            // Layers off: stop any separation that is running and free the AI engine.
+            if let Some((id, job)) = self.stem_job.take() {
+                if !job.done.load(Ordering::SeqCst) {
+                    job.cancel.store(true, Ordering::Relaxed);
+                    eprintln!("[{:7.1}s] stems: layers turned off, stopping song {}", crate::sep::uptime(), id);
+                }
+            }
+            crate::sep::release_engine();
             if self.snap.stems.iter().any(|b| *b) {
                 let mut m = mixer.lock().unwrap();
                 for d in 0..2 {
