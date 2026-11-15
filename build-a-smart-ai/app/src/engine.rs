@@ -270,6 +270,11 @@ pub struct Deck {
     /// Channel trim (input gain, 0..2) and channel volume fader (0..1), like a club mixer.
     pub trim: f32,
     pub fader: f32,
+    /// Output routing. Normal: main (audience) only. "DJ only": headphones only, never the audience.
+    pub to_main: bool,
+    pub to_dj: bool,
+    /// Held by a scrub drag: the deck stands still (silent) until released.
+    pub hold: bool,
     lp1: f32,
     st: Stretch,
     s0: [f32; NL],
@@ -377,6 +382,9 @@ impl Deck {
             phase_goal: 0.0,
             trim: 1.0,
             fader: 1.0,
+            to_main: true,
+            to_dj: false,
+            hold: false,
             lp1: 0.0,
             st: Stretch::new(),
             s0: [0.0; NL],
@@ -487,6 +495,8 @@ pub struct Mixer {
     pub manual: bool,
     pub master: f32,
     pub pending: Option<Pending>,
+    /// The pending mix enters at a chosen section start: put its bar line exactly on the playing song's beat grid.
+    pub grid_lock: bool,
     pub trans: Option<Trans>,
     pub completed: u32,
     pub scope: Vec<f32>,
@@ -520,6 +530,7 @@ pub struct Mixer {
     /// Crossfader curve: 0 = smooth (constant power) .. 1 = sharp cut (scratch style).
     pub xf_curve: f32,
     sync_ctr: u32,
+    cue_feed: f32,
 }
 
 impl Mixer {
@@ -532,6 +543,7 @@ impl Mixer {
             manual: false,
             master: 0.8,
             pending: None,
+            grid_lock: false,
             trans: None,
             completed: 0,
             scope: vec![0.0; 2048],
@@ -562,6 +574,7 @@ impl Mixer {
             quantize: true,
             xf_curve: 0.0,
             sync_ctr: 0,
+            cue_feed: 0.0,
         };
         m.set_sr(44100.0);
         m
@@ -600,14 +613,29 @@ impl Mixer {
             }
             return;
         }
+        // DJ-only decks need a DJ device. If it is gone, stop them: they must never fall back to the audience.
+        if !self.dj_on {
+            for d in self.decks.iter_mut() {
+                if !d.to_main || d.to_dj {
+                    d.to_main = true;
+                    d.to_dj = false;
+                    d.playing = false;
+                }
+            }
+        }
+        let live = self.dj_live();
         for f in 0..frames {
             self.tick();
             let (l, r) = self.frame();
-            if self.dj_on && self.dj_mix {
-                if self.mon.len() > (self.sr * 0.4) as usize {
+            if self.dj_on && (self.dj_mix || live) {
+                if self.mon.len() > (self.sr * 0.1) as usize {
                     self.mon.pop_front();
                 }
-                self.mon.push_back((l, r));
+                // Headphone feed = (main mix, in Main-mix mode) + any DJ-only decks.
+                let g = (self.dj_vol / self.master.max(0.1)).min(8.0); // independent of the audience volume
+                let (ml, mr) = if self.dj_mix { (l * g, r * g) } else { (0.0, 0.0) };
+                let c = (self.cue_feed * self.dj_vol * 0.9).tanh();
+                self.mon.push_back((ml + c, mr + c));
             }
             for c in 0..channels {
                 out[f * channels + c] = if c == 0 {
@@ -631,8 +659,15 @@ impl Mixer {
             self.mon.clear();
             return silent(out);
         }
-        if self.dj_mix {
+        if self.dj_mix || self.dj_live() {
             let step = self.sr / out_sr.max(1.0);
+            // Keep the headphone feed close to real time: if the two devices drift apart, skip ahead.
+            // ~60 ms at most (one device buffer or two), so DJ and audience stay in step.
+            let max_lag = (self.sr * 0.06) as usize;
+            if self.mon.len() > max_lag {
+                let drop = self.mon.len() - max_lag / 3;
+                self.mon.drain(..drop);
+            }
             for f in 0..frames {
                 self.mon_ph += step;
                 while self.mon_ph >= 1.0 {
@@ -641,11 +676,10 @@ impl Mixer {
                     self.mon_b = self.mon.pop_front().unwrap_or((0.0, 0.0));
                 }
                 let p = self.mon_ph;
-                let g = (self.dj_vol / self.master.max(0.1)).min(8.0); // independent of the audience volume
                 let l = self.mon_a.0 + (self.mon_b.0 - self.mon_a.0) * p;
                 let r = self.mon_a.1 + (self.mon_b.1 - self.mon_a.1) * p;
                 for c in 0..ch {
-                    out[f * ch + c] = if c == 0 { l * g } else if c == 1 { r * g } else { 0.0 };
+                    out[f * ch + c] = if c == 0 { l } else if c == 1 { r } else { 0.0 };
                 }
             }
             return;
@@ -697,11 +731,64 @@ impl Mixer {
 
     /// Where the DJ preview currently is, if it is playing a song.
     pub fn cue_position(&self) -> Option<(usize, f64)> {
-        if self.dj_on && !self.dj_mix {
+        if self.dj_on && !self.dj_mix && !self.dj_live() {
             self.cue_track.map(|t| (t, self.cue_pos))
         } else {
             None
         }
+    }
+
+    /// Scrub: move deck `d` to `pos` and hold it there (silent, no stutter) until `scrub_end`.
+    pub fn scrub(&mut self, d: usize, pos: f64) {
+        let len = self.decks[d].len();
+        let dk = &mut self.decks[d];
+        dk.pos = pos.clamp(0.0, (len - 1.0).max(0.0));
+        dk.hold = true;
+        dk.need_reset = true;
+    }
+
+    /// Scrub while playing: shift deck `d` by `delta` samples; the song keeps going.
+    pub fn nudge_pos(&mut self, d: usize, delta: f64) {
+        let len = self.decks[d].len();
+        let dk = &mut self.decks[d];
+        dk.pos = (dk.pos + delta).clamp(0.0, (len - 1.0).max(0.0));
+        dk.need_reset = true;
+        dk.declick = dk.declick.max(48);
+    }
+
+    /// Let go of a scrubbed deck: it resumes from where it was left, with a short fade-in.
+    pub fn scrub_end(&mut self, d: usize) {
+        let dk = &mut self.decks[d];
+        if dk.hold {
+            dk.hold = false;
+            dk.need_reset = true;
+            dk.declick = 192;
+        }
+    }
+
+    /// True while some deck is routed to the headphones only.
+    pub fn dj_live(&self) -> bool {
+        self.decks.iter().any(|d| d.to_dj)
+    }
+
+    /// Route deck `d` to the headphones only (`on`) or back to the audience.
+    /// Returns false when that is not possible (no DJ device, or the deck is on air).
+    pub fn set_dj_only(&mut self, d: usize, on: bool) -> bool {
+        if on {
+            if !self.dj_on || (d == self.active && self.decks[d].playing) || self.trans.map(|t| t.inn == d || t.out == d).unwrap_or(false) {
+                return false;
+            }
+            self.decks[d].to_main = false;
+            self.decks[d].to_dj = true;
+        } else {
+            self.decks[d].to_main = true;
+            self.decks[d].to_dj = false;
+            // Do not let a deck that was prepared in the headphones suddenly blast the audience.
+            if d != self.active {
+                self.decks[d].playing = false;
+            }
+        }
+        true
     }
 
     /// Restart the pre-listen from the song's planned entry point.
@@ -877,11 +964,28 @@ impl Mixer {
         // Beat-matched mix: lock the incoming deck to the outgoing beat so the kicks
         // never drift apart, holding the alignment the DJ chose for the entry.
         self.decks[inn].lock_auto = false;
+        // The outgoing tempo may have moved since the mix was planned (rate easing back to 1.0,
+        // a sync bend), so lock to the tempo it has *now*, not to the planned one. The old
+        // exact-match test (0.3%) silently skipped the lock and the beats drifted apart.
+        self.decks[out].ease = false;
+        self.decks[out].target_rate = self.decks[out].rate;
+        self.decks[inn].to_main = true;
+        self.decks[inn].to_dj = false;
+        if std::mem::take(&mut self.grid_lock) && (self.decks[inn].rate - p.in_rate).abs() < 0.06 {
+            // Beat-matched tempo: move the entry the few ms needed so the beat grids coincide.
+            if let Some((rate, _, _)) = self.phase_target(inn, false) {
+                if (rate / p.in_rate - 1.0).abs() < 0.06 {
+                    self.snap_phase(inn, false);
+                }
+            }
+        }
         if let Some((rate, err, _)) = self.phase_target(inn, false) {
-            if (rate / p.in_rate - 1.0).abs() < 0.003 {
+            if (rate / p.in_rate - 1.0).abs() < 0.06 {
                 let d = &mut self.decks[inn];
+                d.rate = rate;
+                d.target_rate = rate;
                 d.lock_auto = true;
-                d.lock_base = p.in_rate;
+                d.lock_base = rate;
                 d.phase_goal = err;
             }
         }
@@ -911,15 +1015,25 @@ impl Mixer {
         }
         let mut sum = 0f32;
         let mut send = 0f32;
+        let mut cue = 0f32;
+        let neutral = TP::neutral();
         for d in 0..2 {
-            if self.decks[d].playing {
-                let (o, e) = self.decks[d].process(sr, &tp[d]);
-                sum += o;
-                send += e;
+            if self.decks[d].playing && !self.decks[d].hold {
+                // A DJ-only deck is pre-fader: the crossfader / automatic mix never mutes it.
+                let dj_only = !self.decks[d].to_main;
+                let (o, e) = self.decks[d].process(sr, if dj_only { &neutral } else { &tp[d] });
+                if self.decks[d].to_main {
+                    sum += o;
+                    send += e;
+                }
+                if self.decks[d].to_dj {
+                    cue += o;
+                }
             } else {
                 self.decks[d].level *= 0.999;
             }
         }
+        self.cue_feed = cue;
         // echo bus (ping-pong)
         let n = self.dl.len();
         let ri = (self.wpos + n - self.delay) % n;
@@ -1104,6 +1218,84 @@ mod tests {
         m.render_cue(&mut out, 2, 44100.0);
         let moved = m.cue_pos - 1000.0;
         assert!((moved - SR as f64).abs() < 2.0, "moved {}", moved);
+    }
+}
+
+#[cfg(test)]
+mod routing_tests {
+    use super::*;
+
+    fn mixer() -> Mixer {
+        let mut m = Mixer::new();
+        m.set_sr(48000.0);
+        for d in 0..2 {
+            m.decks[d].pcm = Some(Arc::new((0..SR as usize * 20).map(|i| (i as f32 * 0.05).sin() * 0.5).collect()));
+            m.decks[d].track = Some(d);
+            m.decks[d].norm = 1.0;
+        }
+        m
+    }
+
+    #[test]
+    fn dj_only_deck_is_silent_for_the_audience_and_audible_in_the_headphones() {
+        let mut m = mixer();
+        m.dj_on = true;
+        assert!(m.set_dj_only(1, true));
+        m.decks[1].playing = true;
+        let mut main = vec![0.0f32; 9600];
+        m.render(&mut main, 2);
+        assert!(main.iter().all(|v| v.abs() < 1e-6), "audience must hear nothing");
+        let mut dj = vec![0.0f32; 4800];
+        m.render_cue(&mut dj, 2, 48000.0);
+        assert!(dj.iter().any(|v| v.abs() > 0.05), "DJ must hear the deck");
+    }
+
+    #[test]
+    fn dj_only_needs_a_dj_device_and_never_falls_back_to_the_audience() {
+        let mut m = mixer();
+        assert!(!m.set_dj_only(1, true));
+        m.dj_on = true;
+        assert!(m.set_dj_only(1, true));
+        m.decks[1].playing = true;
+        m.dj_on = false; // headphones unplugged
+        let mut main = vec![0.0f32; 4800];
+        m.render(&mut main, 2);
+        assert!(main.iter().all(|v| v.abs() < 1e-6));
+        assert!(!m.decks[1].playing && m.decks[1].to_main);
+    }
+
+    #[test]
+    fn section_entry_lands_on_the_playing_beat_grid() {
+        let mut m = mixer();
+        m.decks[0].bpm = 120.0;
+        m.decks[0].playing = true;
+        m.decks[0].pos = 50_123.0;
+        m.decks[1].bpm = 120.0;
+        m.grid_lock = true;
+        // section start is on deck 1's own bar line (origin 0), but the playing deck is mid-beat
+        m.pending = Some(Pending { deck_in: 1, trigger: 0.0, start_pos: 4.0 * m.decks[1].spb() * 3.0, in_rate: 1.0, dur_secs: 8.0, style: Style::Blend, out_bpm_eff: 120.0, script: None });
+        m.render_virtual(0.05);
+        assert!(m.phase_ms(1).unwrap().abs() < 20.0, "phase {} ms", m.phase_ms(1).unwrap());
+    }
+
+    #[test]
+    fn auto_lock_survives_a_tempo_change_since_planning() {
+        let mut m = mixer();
+        m.decks[0].bpm = 120.0;
+        m.decks[0].rate = 1.03; // outgoing deck is not at 1.0 any more
+        m.decks[0].playing = true;
+        m.decks[0].pos = 50_000.0;
+        m.decks[1].bpm = 120.0;
+        let planned = 1.0; // the plan assumed an outgoing tempo of 1.0
+        m.pending = Some(Pending { deck_in: 1, trigger: 0.0, start_pos: 10_000.0, in_rate: planned, dur_secs: 8.0, style: Style::Blend, out_bpm_eff: 120.0, script: None });
+        m.render_virtual(0.1);
+        assert!(m.decks[1].lock_auto, "beats must be locked");
+        assert!((m.decks[1].eff_bpm() - m.decks[0].eff_bpm()).abs() < 1.0);
+        // the lock holds the planned offset: no drift over the mix
+        let start = m.phase_ms(1).unwrap();
+        m.render_virtual(6.0);
+        let end = m.phase_ms(1).unwrap();
+        assert!((end - start).abs() < 15.0, "drifted {} -> {} ms", start, end);
     }
 }
 

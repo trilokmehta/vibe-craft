@@ -59,6 +59,7 @@ pub struct Snap {
     pub sr: f32,
     pub completed: u32,
     pub sync: [bool; 2],
+    pub dj_only: [bool; 2],
     pub quantize: bool,
     pub trim: [f32; 2],
     pub fader: [f32; 2],
@@ -112,6 +113,8 @@ pub struct App {
     pub vis: [f32; 32],
     pub drawn: Vec<&'static str>,
     pub skip_flag: bool,
+    /// Set for one plan() call: mix within the next ~10 s at the best spot.
+    pub quick_mix: bool,
     pub snap: Snap,
     pub mx: f32,
     pub my: f32,
@@ -167,6 +170,8 @@ pub struct App {
     /// Last drawn output-menu rectangle (x, y, w, h); clicks inside it must not reach the page behind.
     pub menu_rect: (f32, f32, f32, f32),
     pub cue_drag: bool,
+    /// Beat-zoom scrub: (deck lane, mouse x at grab, position at grab, moved).
+    pub zoom_drag: Option<(usize, f32, f64, bool, f32)>,
 }
 
 impl App {
@@ -199,6 +204,7 @@ impl App {
             vis: [0.0; 32],
             drawn: Vec::new(),
             skip_flag: false,
+            quick_mix: false,
             snap: Snap::default(),
             mx: 0.0,
             my: 0.0,
@@ -220,6 +226,7 @@ impl App {
             dj_request: None,
             menu_rect: (0.0, 0.0, 0.0, 0.0),
             cue_drag: false,
+            zoom_drag: None,
             toast: String::new(),
             toast_t: 0.0,
             logo: None,
@@ -325,6 +332,8 @@ impl App {
     /// point in the next one (anywhere in either song), matches tempo, picks a
     /// transition style, loads the idle deck and arms the sample-accurate scheduler.
     pub fn plan(&mut self, force: bool) {
+        // Quick auto mix: leave the playing song within the next ~10 s, at the best bar line.
+        let quick = std::mem::take(&mut self.quick_mix);
         if self.queue.is_empty() {
             return;
         }
@@ -372,7 +381,9 @@ impl App {
         };
         let intro_quiet = quiet_intro_secs(tin, in_default);
         let out_limit = if classic { sec_cur.map(|s| s.1) } else { Some(sec_cur.map(|s| s.1).unwrap_or(f64::MAX).min(a_fade)) };
-        let opts = MixOpts { force_out: self.forced_out.filter(|f| f.0 == cur && f.1 > pos).map(|f| f.1), force_in: sec_next.map(|s| s.0), out_limit };
+        let out_window = if quick { Some((pos + 1.5 * sr * rate, pos + 10.0 * sr * rate)) } else { None };
+        let out_limit = if quick { None } else { out_limit };
+        let opts = MixOpts { force_out: self.forced_out.filter(|f| f.0 == cur && f.1 > pos).map(|f| f.1), force_in: sec_next.map(|s| s.0), out_limit, out_window };
         let calm = self.set.mood.calm();
         let mut bi: u32 = if self.set.intensity < 0.34 {
             32
@@ -384,7 +395,7 @@ impl App {
         if calm {
             bi = bi.max(16);
         }
-        if force {
+        if force || quick {
             bi = bi.min(8);
         }
         // Tempos too far apart to beat-match: a long, smooth crossfade (like AutoMix), not an echo cut.
@@ -394,7 +405,7 @@ impl App {
             (Style::EchoOut, 8, 1.0)
         } else if ks < 0.45 {
             (Style::EchoOut, 8, r)
-        } else if calm || self.set.intensity < 0.7 {
+        } else if calm || (!quick && self.set.intensity < 0.7) {
             (Style::Blend, bi, r)
         } else {
             (Style::FilterEcho, bi.min(16), r)
@@ -422,6 +433,8 @@ impl App {
                 pos
             };
             (t, in_default, format!("you asked for the next song: mixing in on the next bar line, entering {} from its start", tin.title))
+        } else if quick && style == Style::Fade {
+            (pos + 2.0 * sr * rate, in_default, format!("auto mix: no shared beat, so a smart crossfade into {} starts in about 2 s", tin.title))
         } else if style == Style::Fade {
             let why = if !auto {
                 "Auto DJ is off: simple crossfade at the end".to_string()
@@ -440,7 +453,10 @@ impl App {
             };
             choose_mix(ta, tin, pos, rate, beats, calm, opts, vp)
         } {
-            (c.out_pos, c.in_pos, c.why)
+            (c.out_pos, c.in_pos, if quick { format!("auto mix, best spot in the next 10 s: {}", c.why) } else { c.why })
+        } else if quick {
+            let b = next_boundary(origin, 4.0 * spb, pos + 2.0 * sr * rate);
+            (b.min(pos + 10.0 * sr * rate), in_default, format!("auto mix on the next phrase, entering {} from its start", tin.title))
         } else {
             let earliest = pos + 3.0 * sr * rate;
             let desired = (ta.a.outro_start - spb).max(earliest);
@@ -467,7 +483,9 @@ impl App {
             }
         };
         // Lock the beats where the songs actually overlap: line up the drum hits there.
-        let in_pos = if !classic && matches!(style, Style::Blend | Style::FilterEcho) {
+        // A section start was snapped to the drawn bar grid: keep it there (grid-to-grid) instead of
+        // letting the onset search shift it off the bar line.
+        let in_pos = if !classic && sec_next.is_none() && matches!(style, Style::Blend | Style::FilterEcho) {
             let a_audio = ta.audio();
             align_entry(&a_audio, trigger, rate, &tin_audio, in_pos, in_rate, 60.0 / out_eff.max(40.0) as f64, (dur as f64).min(10.0))
         } else {
@@ -479,20 +497,27 @@ impl App {
             let inn = 1 - act;
             let same = m.decks[inn].track == Some(nt);
             let d = &mut m.decks[inn];
+            // The DJ is already playing / scrubbing this song on the idle deck: re-planning must
+            // not pause it, move it or take it off the headphones.
+            let user_playing = same && d.playing;
             d.pcm = Some(tin_audio);
             d.track = Some(nt);
-            d.pos = in_pos;
-            d.rate = in_rate;
-            d.target_rate = in_rate;
             d.bpm = tin.a.bpm;
             d.origin = tin.a.origin;
             d.norm = tin.a.gain;
-            d.playing = false;
-            d.eq = [1.0; 3];
-            d.filt = 1.0;
-            d.loop_on = false;
-            d.cues = [None; 4];
-            d.ease = false;
+            if !user_playing {
+                d.pos = in_pos;
+                d.rate = in_rate;
+                d.target_rate = in_rate;
+                d.playing = false;
+                d.to_main = true;
+                d.to_dj = false;
+                d.eq = [1.0; 3];
+                d.filt = 1.0;
+                d.loop_on = false;
+                d.cues = [None; 4];
+                d.ease = false;
+            }
             // Same song re-planned: keep its layers and layer levels (no flicker).
             // A new song takes its layers straight from the cache when they are ready.
             if !same {
@@ -501,6 +526,7 @@ impl App {
             } else if d.stems.is_none() {
                 d.stems = cached;
             }
+            m.grid_lock = sec_next.is_some();
             m.pending = Some(Pending { deck_in: inn, trigger, start_pos: in_pos, in_rate, dur_secs: dur, style, out_bpm_eff: out_eff, script });
         }
         let why = if intro_quiet >= 2.0 { format!("{}; {} has a {:.0} s quiet intro", why, tin.title, intro_quiet) } else { why };
@@ -537,6 +563,44 @@ impl App {
             None => {
                 self.skip_flag = false;
                 self.say("Could not start the mix - try again");
+            }
+        }
+    }
+
+    /// Auto mix: take the playing song and the next one, find the best spot to leave the
+    /// playing song in the next ~10 s and mix into the next with a planned transition.
+    /// Works from manual (crossfader) mode too: it hands control back to the DJ for this mix.
+    pub fn auto_mix_now(&mut self) {
+        if self.snap.trans.is_some() {
+            self.say("Already mixing - the next song is on its way");
+            return;
+        }
+        if self.queue.is_empty() {
+            self.refill();
+        }
+        if self.queue.is_empty() {
+            self.say("No next song in the queue yet");
+            return;
+        }
+        if self.snap.paused {
+            self.toggle_pause();
+        }
+        {
+            let mut m = self.mixer.lock().unwrap();
+            m.manual = false;
+            m.pending = None;
+        }
+        self.armed = None;
+        self.skip_flag = true;
+        self.quick_mix = true;
+        self.snapshot();
+        self.plan(false);
+        let armed = self.armed.as_ref().map(|a| (self.lib[a.track].title.clone(), a.style.name()));
+        match armed {
+            Some((t, s)) => self.say(&format!("Auto mix into {} - {}", t, s)),
+            None => {
+                self.skip_flag = false;
+                self.say("Could not start the auto mix - try again");
             }
         }
     }
@@ -635,6 +699,7 @@ impl App {
             s.stems[d] = m.decks[d].stems.is_some();
             s.sg[d] = m.decks[d].sg;
             s.sync[d] = m.decks[d].sync || m.decks[d].lock_auto;
+            s.dj_only[d] = m.decks[d].to_dj && !m.decks[d].to_main;
             s.phase_ms[d] = m.phase_ms(d);
             s.pcm[d] = m.decks[d].pcm.clone();
             s.trim[d] = m.decks[d].trim;
@@ -825,7 +890,10 @@ impl App {
     pub fn snap_bar(&self, tid: usize, pos: f64) -> f64 {
         let t = &self.lib[tid];
         let len = t.samples() as f64;
-        if t.a.beat_conf < 1.3 {
+        // Snap to the same bar lines the waveform / beat zoom draws, even when the grid is
+        // low-confidence (otherwise the selection edges visibly miss the drawn grid).
+        // "Snap to beat: OFF" gives free selection.
+        if !self.snap.quantize {
             return pos.clamp(0.0, len);
         }
         let bar = 4.0 * SR as f64 * 60.0 / t.a.bpm as f64;

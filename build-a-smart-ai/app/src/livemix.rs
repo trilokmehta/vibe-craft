@@ -56,7 +56,7 @@ impl App {
         rrect(x, y, w, h, 14.0, Color::new(1.0, 1.0, 1.0, 0.05));
         self.zoom_rect = (x, y, w, h);
         self.tx("zoom", "BEAT ZOOM", x + 16.0, y + 26.0, 16.0, accent);
-        draw_text(&fit(&format!("{:.1} s shown - mouse wheel zooms, click jumps (playing) or sets the entry (next)", self.zoom_secs), 14.0, w - 230.0), x + 120.0, y + 26.0, 14.0, Color::new(1.0, 1.0, 1.0, 0.5));
+        draw_text(&fit(&format!("{:.1} s shown - mouse wheel zooms, click jumps, drag scrubs (playing) or sets the entry (next)", self.zoom_secs), 14.0, w - 230.0), x + 120.0, y + 26.0, 14.0, Color::new(1.0, 1.0, 1.0, 0.5));
         let bw = 34.0;
         if self.button(x + w - 16.0 - bw, y + 8.0, bw, 26.0, "+", false, accent) {
             self.zoom_secs = (self.zoom_secs * 0.8).max(0.5);
@@ -120,15 +120,49 @@ impl App {
             let tint = hsv(tr.hue / 360.0, 0.45, 1.0);
             let rate = self.snap.rate[d].max(0.1);
             let live = row == 0 || self.snap.playing[d];
-            let center = if live { self.snap.pos[d] } else { self.armed.as_ref().filter(|ar| ar.track == t).map(|ar| ar.in_pos).unwrap_or(tr.a.origin) };
+            let mut center = if live { self.snap.pos[d] } else { self.armed.as_ref().filter(|ar| ar.track == t).map(|ar| ar.in_pos).unwrap_or(tr.a.origin) };
             // Same seconds on screen for both lanes (playback time), so locked beats line up.
             let span = self.zoom_secs as f64 * SR as f64 * rate;
+            // Scrub: grab the waveform and drag it, like a record. It follows the mouse exactly.
+            let hv = self.hov(lx, wy, lw, lane);
+            if self.click && hv {
+                self.zoom_drag = Some((d, self.mx, center, false, self.mx));
+            }
+            let mut released: Option<(f64, bool)> = None;
+            if let Some((dd, last, sp, moved, grab)) = self.zoom_drag {
+                if dd == d {
+                    let moved = moved || (self.mx - grab).abs() > 4.0;
+                    let maxp = (pcm.len() as f64 - 1.0).max(0.0);
+                    if self.down {
+                        // Relative nudges: the song keeps playing, each mouse move shifts it a little.
+                        let mut target = sp;
+                        if moved {
+                            target = (sp - ((self.mx - last) / lw) as f64 * span).clamp(0.0, maxp);
+                            if live {
+                                if target != sp {
+                                    self.mixer.lock().unwrap().nudge_pos(d, target - sp);
+                                }
+                            } else {
+                                center = target;
+                            }
+                        }
+                        self.zoom_drag = Some((dd, self.mx, target, moved, grab));
+                    } else {
+                        self.zoom_drag = None;
+                        released = Some((sp, moved));
+                    }
+                }
+            }
             let s0 = center - span / 2.0;
             let cols = ((lw / 2.0) as usize).max(16);
             let per = span / cols as f64;
             let step = ((per / 48.0) as usize).max(1);
-            for c in 0..cols {
-                let a0 = s0 + c as f64 * per;
+            // Bars sit on a fixed grid in song time and slide by the sub-column remainder,
+            // so they do not shimmer while the view moves.
+            let s0q = (s0 / per).floor() * per;
+            let shift = ((s0 - s0q) / per) as f32 * lw / cols as f32;
+            for c in 0..=cols {
+                let a0 = s0q + c as f64 * per;
                 let (i0, i1) = (a0.max(0.0) as usize, ((a0 + per).max(0.0) as usize).min(pcm.len()));
                 if i0 >= i1 {
                     continue;
@@ -141,7 +175,12 @@ impl App {
                 }
                 let bh = ((pk * tr.a.gain).min(1.0) * lane * 0.92).max(1.0);
                 let alpha = if a0 < center { 0.45 } else { 0.85 };
-                draw_rectangle(lx + c as f32 * lw / cols as f32, wy + (lane - bh) / 2.0, (lw / cols as f32 - 0.5).max(1.0), bh, Color::new(tint.r, tint.g, tint.b, alpha));
+                let bx = lx + c as f32 * lw / cols as f32 - shift;
+                let bwid = (lw / cols as f32 - 0.5).max(1.0);
+                let (x0, x1) = (bx.max(lx), (bx + bwid).min(lx + lw));
+                if x1 > x0 {
+                    draw_rectangle(x0, wy + (lane - bh) / 2.0, x1 - x0, bh, Color::new(tint.r, tint.g, tint.b, alpha));
+                }
             }
             // Beat grid: bars bright with their number, beats faint.
             let spb = SR as f64 * 60.0 / tr.a.bpm.max(40.0) as f64;
@@ -165,13 +204,31 @@ impl App {
             // Playhead (or the planned entry) in the middle.
             let cx = lx + lw / 2.0;
             draw_line(cx, wy - 3.0, cx, wy + lane + 3.0, 2.5, if live { WHITE } else { Color::new(0.3, 1.0, 0.6, 1.0) });
-            if self.click && self.hov(lx, wy, lw, lane) {
-                let p = s0 + ((self.mx - lx) / lw) as f64 * span;
-                if live {
-                    self.jump_deck(d, p);
+            if let Some((target, moved)) = released {
+                let end = (tr.a.origin + tr.a.last_bar as f64 * 4.0 * spb).min(tr.samples() as f64);
+                if moved {
+                    if live {
+                        // let go: resume there, back on the other deck's beat when Snap is on
+                        let mut m = self.mixer.lock().unwrap();
+                        m.scrub_end(d);
+                        if m.quantize {
+                            m.snap_phase(d, false);
+                        }
+                    } else {
+                        let p = self.snap_bar(t, target);
+                        self.set_section(t, p, end);
+                    }
                 } else {
-                    let end = (tr.a.origin + tr.a.last_bar as f64 * 4.0 * spb).min(tr.samples() as f64);
-                    self.set_section(t, p, end);
+                    // a plain click: jump / set the entry where the mouse is
+                    let p = s0 + ((self.mx - lx) / lw) as f64 * span;
+                    if live {
+                        self.jump_deck(d, p);
+                    } else {
+                        self.set_section(t, p, end);
+                    }
+                }
+                if !live {
+                    self.dirty = true;
                 }
             }
             ly += lane + 24.0;

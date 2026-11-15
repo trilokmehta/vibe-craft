@@ -281,6 +281,8 @@ impl App {
             dk.origin = t.a.origin;
             dk.norm = t.a.gain;
             dk.playing = false;
+            dk.to_main = true;
+            dk.to_dj = false;
         }
     }
 
@@ -348,11 +350,25 @@ impl App {
                 m.decks[d].target_rate = m.decks[d].rate;
                 m.decks[d].ease = false;
             }
-            _ => {
+            5 => {
                 m.decks[d].sync = false;
                 m.decks[d].rate = (m.decks[d].rate + 0.005).min(1.2);
                 m.decks[d].target_rate = m.decks[d].rate;
                 m.decks[d].ease = false;
+            }
+            _ => {
+                // DJ only: play this deck in the headphones, never to the audience.
+                let on = !(m.decks[d].to_dj && !m.decks[d].to_main);
+                let ok = m.set_dj_only(d, on);
+                drop(m);
+                if ok {
+                    self.say(if on { "DJ only: this deck plays in your headphones, the audience cannot hear it" } else { "Back to the audience output" });
+                } else if self.snap.active == d && self.snap.playing[d] {
+                    self.say("That deck is on air - use the other deck for DJ only");
+                } else {
+                    self.out_menu = true; // show where to pick the headphones
+                    self.say("Pick your headphones under DJ (right column), then press DJ only again");
+                }
             }
         }
     }
@@ -400,10 +416,10 @@ impl App {
                 draw_text("Empty", px + 16.0, py + 52.0, 20.0, Color::new(1.0, 1.0, 1.0, 0.4));
             }
             let by = py + 156.0;
-            let bw = (pw - 32.0 - 5.0 * 6.0) / 6.0;
-            let labels = [if self.snap.playing[d] { "Pause" } else { "Play" }, "Cue", if self.snap.loop_on[d] { "Loop off" } else { "Loop 4" }, if self.snap.sync[d] { "Synced" } else { "Sync" }, "BPM -", "BPM +"];
+            let bw = (pw - 32.0 - 6.0 * 6.0) / 7.0;
+            let labels = [if self.snap.playing[d] { "Pause" } else { "Play" }, "Cue", if self.snap.loop_on[d] { "Loop off" } else { "Loop 4" }, if self.snap.sync[d] { "Synced" } else { "Sync" }, "BPM -", "BPM +", if self.snap.dj_only[d] { "DJ only ON" } else { "DJ only" }];
             for (k, l) in labels.iter().enumerate() {
-                let active = (k == 0 && self.snap.playing[d]) || (k == 2 && self.snap.loop_on[d]) || (k == 3 && self.snap.sync[d]);
+                let active = (k == 0 && self.snap.playing[d]) || (k == 2 && self.snap.loop_on[d]) || (k == 3 && self.snap.sync[d]) || (k == 6 && self.snap.dj_only[d]);
                 if self.button(px + 16.0 + k as f32 * (bw + 6.0), by, bw, 32.0, l, active, accent) {
                     self.deck_action(d, k);
                 }
@@ -441,6 +457,10 @@ impl App {
         rrect(cx, cy0, cw, 330.0, 14.0, Color::new(1.0, 1.0, 1.0, 0.06));
         draw_text("MIXER", cx + 16.0, cy0 + 26.0, 16.0, Color::new(1.0, 1.0, 1.0, 0.6));
         let a = Color::new(0.5, 0.9, 1.0, 1.0);
+        // Auto mix: finds the best spot in the next ~10 s and runs a planned transition.
+        if self.button(cx + cw - 16.0 - 84.0, cy0 + 8.0, 84.0, 26.0, "Auto mix", self.snap.trans.is_some(), a) {
+            self.auto_mix_now();
+        }
         let deck_col = |d: usize| self.snap.track[d].map(|i| hsv(lib[i].hue / 360.0, 0.45, 1.0)).unwrap_or(a);
         let (ca, cb) = (deck_col(0), deck_col(1));
         // meters read in dB: -36 dB .. 0 dB

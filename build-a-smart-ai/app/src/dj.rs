@@ -560,6 +560,9 @@ pub struct MixOpts {
     pub force_in: Option<f64>,
     /// Latest position (end of a selected section) the outgoing song may play to.
     pub out_limit: Option<f64>,
+    /// Quick auto mix: the outgoing song must be left inside this window (start, end) in samples;
+    /// every bar line in it is a candidate.
+    pub out_window: Option<(f64, f64)>,
 }
 
 /// The most useful exit points of a song (any location), in time order.
@@ -612,13 +615,25 @@ pub fn choose_mix(ta: &Track, tin: &Track, pos: f64, rate: f64, beats: u32, calm
         let lvl = nearest_level(&ins, f);
         ins = vec![MixPoint { pos: f, score: 1.0, kind: "your choice", lvl }];
     }
-    let limited = opts.out_limit.is_some() || opts.force_out.is_some();
+    let win = opts.out_window.filter(|_| opts.force_out.is_none());
+    if let Some((lo, hi)) = win {
+        let first = ((lo - ta.a.origin) / ba).ceil().max(0.0) as i64;
+        let last = ((hi - ta.a.origin) / ba).floor() as i64;
+        let mut v = Vec::new();
+        for i in first..=last.min(first + 16) {
+            let pos = ta.a.origin + i as f64 * ba;
+            let lvl = nearest_level(&outs, pos);
+            v.push(MixPoint { pos, score: 0.5, kind: "bar line", lvl });
+        }
+        outs = v;
+    }
+    let limited = opts.out_limit.is_some() || opts.force_out.is_some() || win.is_some();
     let mut best: Option<(f32, MixPoint, MixPoint, String)> = None;
     for o in &outs {
-        if o.pos < earliest && opts.force_out.is_none() {
+        if win.is_none() && o.pos < earliest && opts.force_out.is_none() {
             continue;
         }
-        if opts.force_out.is_none() && o.pos + trans_bars * ba > a_end + ba {
+        if win.is_none() && opts.force_out.is_none() && o.pos + trans_bars * ba > a_end + ba {
             continue;
         }
         if let Some(lim) = opts.out_limit {
