@@ -19,6 +19,19 @@ pub fn mood_hue(m: Mood) -> f32 {
     }
 }
 
+/// Keyboard shortcut for a button label, when it has an unambiguous one.
+pub fn shortcut_for(label: &str) -> Option<&'static str> {
+    match label {
+        "Now Playing" | "Now" => Some("1"),
+        "Smart DJ" => Some("2"),
+        "Queue" => Some("3"),
+        "Library" => Some("4"),
+        "Like" | "Liked" => Some("L"),
+        "AUTO DJ" | "DJ off" | "AUTO DJ  ON" | "AUTO DJ  OFF" => Some("D"),
+        _ => None,
+    }
+}
+
 pub fn tw(s: &str, size: f32) -> f32 {
     measure_text(s, None, size as u16, 1.0).width
 }
@@ -205,6 +218,11 @@ impl App {
 
     pub fn button(&mut self, x: f32, y: f32, w: f32, h: f32, label: &str, active: bool, accent: Color) -> bool {
         let hv = self.hov(x, y, w, h);
+        if hv {
+            if let Some(k) = shortcut_for(label) {
+                self.tip_now = Some((format!("Shortcut: {}", k), x, y, w, h));
+            }
+        }
         // Key by x + label (not y) so the animation survives scrolling.
         let lh = label.bytes().fold(5381i32, |a, b| a.wrapping_mul(33) ^ b as i32);
         let dt = self.dt;
@@ -230,6 +248,40 @@ impl App {
         let tc = Color::new(tv, tv, tv + 0.03 * act, 1.0);
         draw_text(&l, x + (w - wd) / 2.0, y + h / 2.0 + size * 0.3, size, tc);
         hv && self.click
+    }
+
+    /// Shows "Shortcut: <key>" when the mouse rests on this area.
+    pub fn tip(&mut self, x: f32, y: f32, w: f32, h: f32, key: &str) {
+        if self.hov(x, y, w, h) {
+            self.tip_now = Some((format!("Shortcut: {}", key), x, y, w, h));
+        }
+    }
+
+    /// Draws the shortcut tooltip once the mouse has rested on a control for a moment.
+    pub fn draw_tip(&mut self, w: f32) {
+        match self.tip_now.take() {
+            Some((txt, x, y, bw, bh)) => {
+                let key = format!("{}{}", txt, x as i32);
+                if self.tip_key != key {
+                    self.tip_key = key;
+                    self.tip_t = 0.0;
+                } else {
+                    self.tip_t += self.dt;
+                }
+                if self.tip_t > 0.35 {
+                    let tw_ = tw(&txt, 15.0) + 22.0;
+                    let tx = (x + bw / 2.0 - tw_ / 2.0).clamp(6.0, (w - tw_ - 6.0).max(6.0));
+                    let ty = if y > HDR + 40.0 { y - 34.0 } else { y + bh + 8.0 };
+                    rrect(tx - 1.0, ty - 1.0, tw_ + 2.0, 28.0, 9.0, Color::new(1.0, 1.0, 1.0, 0.25));
+                    rrect(tx, ty, tw_, 26.0, 8.0, Color::new(0.03, 0.03, 0.06, 0.97));
+                    draw_text(&txt, tx + 11.0, ty + 18.0, 15.0, WHITE);
+                }
+            }
+            None => {
+                self.tip_t = 0.0;
+                self.tip_key.clear();
+            }
+        }
     }
 
     /// Compact header pill: soft tinted fill, thin outline, icon dot and label.
@@ -624,6 +676,9 @@ impl App {
         }
         let cx = w / 2.0;
         let cy = fy + 66.0;
+        self.tip(cx - 102.0, cy - 22.0, 44.0, 44.0, "Left arrow");
+        self.tip(cx - 22.0, cy - 22.0, 44.0, 44.0, "Space");
+        self.tip(cx + 58.0, cy - 22.0, 44.0, 44.0, "Right arrow");
         let h_prev = self.hov(cx - 102.0, cy - 22.0, 44.0, 44.0);
         let c = if h_prev { WHITE } else { Color::new(1.0, 1.0, 1.0, 0.8) };
         draw_triangle(vec2(cx - 70.0, cy - 10.0), vec2(cx - 70.0, cy + 10.0), vec2(cx - 86.0, cy), c);
@@ -664,6 +719,7 @@ impl App {
         if !narrow {
             let mut v = self.snap.master;
             draw_text("Vol", w - 24.0 - bw - 170.0, cy + 5.0, 16.0, Color::new(1.0, 1.0, 1.0, 0.6));
+            self.tip(w - 24.0 - bw - 140.0, cy - 12.0, 110.0, 24.0, "Up / Down arrow");
             if self.slider(w - 24.0 - bw - 140.0, cy, 110.0, &mut v, accent) {
                 self.mixer.lock().unwrap().master = v;
             }
@@ -832,6 +888,7 @@ impl App {
         self.click = real_click;
         self.down = real_down;
         self.header_footer(w, h);
+        self.draw_tip(w);
         if self.tab == 3 && self.search_focus {
             return;
         }

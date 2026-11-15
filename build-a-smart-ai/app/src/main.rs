@@ -560,9 +560,12 @@ async fn main() {
         app.out_devices = list_outputs();
         app.out_name = out_name;
         update::cleanup();
-        sep::ensure_model();
+        // check for a new version first, before anything slow starts
         app.upd = Some(update::check());
+        sep::ensure_model();
     }
+    // Start-up gate: wait for the update check (up to 6 s); a new version installs and restarts.
+    let mut boot: Option<f32> = if !headless && screenshot.is_none() && selftest.is_none() { Some(0.0) } else { None };
     let mut dev_poll = 0.0f32;
     if !headless && tracks::CHOSEN_DIR.lock().unwrap().is_some() {
         app.begin_scan();
@@ -579,6 +582,38 @@ async fn main() {
     loop {
         frame += 1;
         let dt = get_frame_time().min(0.1);
+        if let (Some(t), Some(st)) = (boot, app.upd.clone()) {
+            use update::State;
+            let s = st.lock().unwrap().clone();
+            let msg = match s {
+                State::Checking if t < 6.0 => Some("Checking for updates...".to_string()),
+                State::Available { tag, .. } => {
+                    update::install(&st);
+                    Some(format!("Updating to {}...", tag))
+                }
+                State::Downloading { tag, pct } => Some(format!("Updating to {}...  {:.0}%", tag, pct * 100.0)),
+                State::Ready { .. } => {
+                    update::restart();
+                    None
+                }
+                _ => None,
+            };
+            if let Some(m) = msg {
+                boot = Some(t + dt);
+                clear_background(Color::new(0.04, 0.04, 0.06, 1.0));
+                let (sw, sh) = (screen_width(), screen_height());
+                if let Some(tex) = &app.logo {
+                    draw_texture_ex(tex, sw / 2.0 - 36.0, sh / 2.0 - 110.0, WHITE, DrawTextureParams { dest_size: Some(vec2(72.0, 72.0)), ..Default::default() });
+                }
+                let w1 = ui::tw("VIBE CRAFT", 30.0);
+                ui::draw_text("VIBE CRAFT", sw / 2.0 - w1 / 2.0, sh / 2.0 - 10.0, 30.0, WHITE);
+                let w2 = ui::tw(&m, 18.0);
+                ui::draw_text(&m, sw / 2.0 - w2 / 2.0, sh / 2.0 + 28.0, 18.0, Color::new(1.0, 1.0, 1.0, 0.6));
+                next_frame().await;
+                continue;
+            }
+            boot = None;
+        }
         if !headless {
             dev_poll += dt;
             let failed = AUDIO_FAILED.load(std::sync::atomic::Ordering::Relaxed);

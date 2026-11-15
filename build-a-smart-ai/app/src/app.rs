@@ -151,6 +151,10 @@ pub struct App {
     /// Where the zoom view was drawn last frame (the mouse wheel zooms there instead of scrolling).
     pub zoom_rect: (f32, f32, f32, f32),
     pub drag: Option<(f32, u8)>,
+    /// Shortcut tooltip: hovered this frame (text, x, y, w, h); how long it has been hovered; its key.
+    pub tip_now: Option<(String, f32, f32, f32, f32)>,
+    pub tip_t: f32,
+    pub tip_key: String,
     /// Part of a deck's song chosen on its waveform: (track, start, end) in samples.
     pub deck_sel: [Option<(usize, f64, f64)>; 2],
     /// Drag in progress on a deck waveform: (mouse x at grab, deck).
@@ -248,6 +252,9 @@ impl App {
             knob_grab: None,
             zoom_rect: (0.0, 0.0, 0.0, 0.0),
             drag: None,
+            tip_now: None,
+            tip_t: 0.0,
+            tip_key: String::new(),
             deck_sel: [None, None],
             deck_drag: None,
             search: String::new(),

@@ -569,6 +569,7 @@ impl App {
             drop(m);
             self.armed = None;
         }
+        self.tip(cx + 22.0 + hw, by, hw, 26.0, "M");
         if self.button(cx + 22.0 + hw, by, hw, 26.0, "Mix now", false, a) {
             self.skip();
         }
