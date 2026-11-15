@@ -308,8 +308,9 @@ pub fn script(pa: &Profile, out_pos: f64, pb: &Profile, in_pos: f64, t_bars: f32
     // 1. Beats.
     let drums_lead = in_drums_early > 0.3;
     if beatmatched {
-        sc[1][DR] = if drums_lead { w(0.0, 0.25) } else { w(0.4, 0.55) };
-        sc[0][DR] = w(0.5, 0.8);
+        // two kits play together only for a moment, around the bass swap
+        sc[1][DR] = if drums_lead { w(0.2, 0.4) } else { w(0.4, 0.55) };
+        sc[0][DR] = w(0.45, 0.6);
     } else {
         // Without a shared beat two drum kits must never play together.
         sc[0][DR] = w(0.15, 0.4);
@@ -333,21 +334,46 @@ pub fn script(pa: &Profile, out_pos: f64, pb: &Profile, in_pos: f64, t_bars: f32
     } else if drums_lead {
         sc[1][MU] = w(0.2, 0.55);
         sc[1][ME] = w(0.3, 0.65);
-        sc[0][ME] = w(0.45, 0.85);
-        sc[0][MU] = w(0.5, 0.95);
+        sc[0][ME] = w(0.35, 0.7);
+        sc[0][MU] = w(0.4, 0.8);
     } else {
         // The next song opens with instruments: let them lead instead of the beat.
         sc[1][MU] = w(0.0, 0.35);
         sc[1][ME] = w(0.05, 0.4);
-        sc[0][ME] = w(0.4, 0.8);
-        sc[0][MU] = w(0.45, 0.9);
+        sc[0][ME] = w(0.3, 0.65);
+        sc[0][MU] = w(0.35, 0.75);
     }
     steps.push((sc[1][MU].0.min(sc[1][ME].0), if clash { "melody hand-off (notes clash)" } else { "instruments + melody" }));
 
-    // 4. Vocals: the outgoing singer leaves early if still singing; the new one comes last.
-    sc[0][V] = if out_voc > 0.2 { w(0.0, 0.3) } else { w(0.35, 0.7) };
-    sc[1][V] = if in_voc_early > 0.2 { w(0.85, 1.0) } else { w(0.6, 0.9) };
-    steps.push((sc[1][V].0, "vocals"));
+    // 4. Vocals. With matching notes the singers hand over in a short crossfade (the old voice
+    // fades out as the new one fades in, after the bass swap); with clashing notes they never overlap.
+    //  mode 0: plain crossfade   1: the old singer rides on a little longer
+    //  2: the new singer comes in early over the old music bed
+    let mode = ((out_pos.abs() / 1000.0) as u64 + (in_pos.abs() / 1000.0) as u64) % 3;
+    let mut vlabel = "vocals";
+    if clash {
+        sc[0][V] = if out_voc > 0.2 { w(0.0, 0.3) } else { w(0.35, 0.7) };
+        sc[1][V] = if in_voc_early > 0.2 { w(0.85, 1.0) } else { w(0.6, 0.9) };
+    } else {
+        match mode {
+            1 => {
+                sc[0][V] = if out_voc > 0.2 { w(0.3, 0.9) } else { w(0.35, 0.85) };
+                sc[1][V] = w(0.55, 0.9);
+                vlabel = "old vocal rides on, then the new one";
+            }
+            2 => {
+                sc[0][V] = if out_voc > 0.2 { w(0.1, 0.7) } else { w(0.3, 0.7) };
+                sc[1][V] = w(0.5, 0.8);
+                vlabel = "new vocal enters over the old music bed";
+            }
+            _ => {
+                sc[0][V] = if out_voc > 0.2 { w(0.3, 0.8) } else { w(0.35, 0.8) };
+                sc[1][V] = w(0.5, 0.8);
+                vlabel = "vocals crossfade";
+            }
+        }
+    }
+    steps.push((sc[1][V].0, vlabel));
 
     // Safeguard: never let the outgoing song leave before the incoming one is
     // actually sounding (quiet intros), or the blend sags into near-silence.
@@ -393,14 +419,14 @@ pub fn script(pa: &Profile, out_pos: f64, pb: &Profile, in_pos: f64, t_bars: f32
         }
         e.sqrt()
     };
-    let target = la.iter().map(|x| x * x).sum::<f32>().sqrt() * 0.5;
+    let target = la.iter().map(|x| x * x).sum::<f32>().sqrt() * 0.4;
     let mut held = false;
-    for _ in 0..8 {
+    for _ in 0..2 {
         let steps_x = (t * 4.0) as usize;
         let dip = (0..=steps_x).map(|s| s as f32 / steps_x as f32).find(|&x| level(&sc, x) < target);
         let Some(x) = dip else { break };
         let mut fixed = false;
-        for k in [MU, ME, V, DR] {
+        for k in [MU, ME] {
             if sc[0][k].1 < (x + 0.2).min(1.0) && la[k] > 0.02 {
                 sc[0][k] = (sc[0][k].0.max(q(x)), q((x + 0.25).min(1.0)).max(sc[0][k].1));
                 held = true;
