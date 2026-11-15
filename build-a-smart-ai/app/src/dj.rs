@@ -269,7 +269,8 @@ pub fn score_candidate(
         tgt_now = c.energy + (target - c.energy).clamp(-step, step);
         let out_eff = cur_eff_bpm.unwrap_or(c.a.bpm);
         let (r, mult, ts) = tempo_match(out_eff, cand);
-        score += 2.2 * ts;
+        // weights fitted on the training DJ sets (55+ real transitions): tempo matters most
+        score += 3.0 * ts;
         if ts > 0.0 {
             let pct = (r - 1.0) * 100.0;
             reasons.push(format!(
@@ -283,7 +284,7 @@ pub fn score_candidate(
             reasons.push(format!("tempo gap {:.0} -> {:.0} BPM, will use an echo transition", out_eff, cand.a.bpm));
         }
         let ks = key_score(c, cand);
-        score += 1.6 * ks;
+        score += 0.9 * ks;
         if ks >= 0.85 {
             reasons.push(format!("harmonic match {} -> {}", camelot_str(c.a.key, c.a.minor), camelot_str(cand.a.key, cand.a.minor)));
         } else if ks >= 0.5 {
@@ -291,7 +292,7 @@ pub fn score_candidate(
         } else {
             reasons.push(format!("key change {} -> {}", camelot_str(c.a.key, c.a.minor), camelot_str(cand.a.key, cand.a.minor)));
         }
-        score += 0.5 * (1.0 - (cand.dance - c.dance).abs());
+        score += 0.7 * (1.0 - (cand.dance - c.dance).abs());
     }
     let es = (1.0 - (cand.energy - tgt_now).abs() * 2.5).clamp(0.0, 1.0);
     score += 1.4 * es;
@@ -650,7 +651,10 @@ pub fn choose_mix(ta: &Track, tin: &Track, pos: f64, rate: f64, beats: u32, calm
             }
             // The layer bonuses can add up to ~3 points; without this an attractive early
             // spot could cut a song short. Play at least ~55% of the song on its own.
-            if vp.is_some() && o.pos < 0.55 * a_end {
+            // Club pacing (training sets: songs play ~40 s, 15-27% of their length) when the
+            // transition is short and punchy; long calm blends keep more of the song.
+            let keep = if calm || beats >= 32 { 0.55 } else { 0.3 };
+            if vp.is_some() && o.pos < keep * a_end {
                 continue;
             }
         } else if let Some(lim) = opts.out_limit {

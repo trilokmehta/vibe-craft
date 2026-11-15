@@ -12,6 +12,12 @@ pub enum Style {
     FilterEcho,
     EchoOut,
     Fade,
+    /// Loop roll: the outgoing bar loops and halves (1 bar, 1/2, 1/4, 1/8) while the
+    /// filter rises, then the next song drops in on the one. A club DJ habit.
+    LoopRoll,
+    /// Reverb wash: the outgoing song is thrown into a big reverb and fades into the tail,
+    /// the next song comes up out of it. Works across a key clash.
+    ReverbWash,
     /// The original plain equal-power crossfade (kept as a baseline for `--mix-eval`).
     Plain,
 }
@@ -24,6 +30,8 @@ impl Style {
             Style::EchoOut => "Echo out, cut in on the one",
             Style::Fade => "Smart crossfade: bass swap, vocals hand off",
             Style::Plain => "Plain crossfade",
+            Style::LoopRoll => "Loop roll, drop in on the one",
+            Style::ReverbWash => "Reverb wash out",
         }
     }
 }
@@ -63,12 +71,13 @@ pub struct TP {
     pub high: f32,
     pub filt: f32,
     pub echo: f32,
+    pub rev: f32,
     pub stem: [f32; NL],
 }
 
 impl TP {
     pub fn neutral() -> TP {
-        TP { gain: 1.0, low: 1.0, mid: 1.0, high: 1.0, filt: 1.0, echo: 0.0, stem: [1.0; NL] }
+        TP { gain: 1.0, low: 1.0, mid: 1.0, high: 1.0, filt: 1.0, echo: 0.0, rev: 0.0, stem: [1.0; NL] }
     }
 }
 
@@ -111,6 +120,26 @@ pub fn trans_params(style: Style, x: f32) -> (TP, TP) {
             i.gain = if x < 0.45 { 0.0 } else { sm(0.45, 0.5, x) };
             o.stem = [1.0 - sm(0.05, 0.3, x), 1.0, 1.0, 1.0, 1.0];
         }
+        Style::LoopRoll => {
+            // loop sizes are driven by the mixer (loop_roll_beats); here: sound shaping
+            o.gain = 1.0 - sm(0.5, 0.56, x);
+            o.filt = 1.0 - 0.15 * sm(0.0, 0.5, x);
+            o.high = 1.0 + 0.3 * sm(0.2, 0.5, x);
+            o.low = 1.0 - 0.7 * sm(0.25, 0.5, x);
+            o.echo = 0.5 * sm(0.45, 0.52, x);
+            i.gain = sm(0.49, 0.51, x);
+            o.stem = [1.0 - sm(0.3, 0.5, x), 1.0, 1.0 - sm(0.25, 0.5, x), 1.0, 1.0];
+        }
+        Style::ReverbWash => {
+            o.rev = 0.9 * sm(0.0, 0.25, x);
+            o.gain = (sm(0.2, 0.45, x) * PI / 2.0).cos();
+            o.filt = 1.0 - 0.4 * sm(0.1, 0.45, x);
+            i.gain = (sm(0.35, 0.75, x) * PI / 2.0).sin();
+            i.low = sm(0.55, 0.75, x);
+            i.filt = 0.35 + 0.65 * sm(0.35, 0.8, x);
+            o.stem = [1.0 - sm(0.1, 0.4, x), 1.0, 1.0 - sm(0.2, 0.45, x), 1.0, 1.0];
+            i.stem = [sm(0.6, 0.9, x), 1.0, sm(0.55, 0.75, x), sm(0.3, 0.6, x), 1.0];
+        }
         Style::Plain => {
             o.gain = (x * PI / 2.0).cos();
             i.gain = (x * PI / 2.0).sin();
@@ -134,6 +163,72 @@ pub fn trans_params(style: Style, x: f32) -> (TP, TP) {
         }
     }
     (o, i)
+}
+
+/// Loop length (beats) of the outgoing deck during a loop roll at progress x; 0 = no loop.
+pub fn loop_roll_beats(x: f32) -> f64 {
+    if x < 0.25 {
+        4.0
+    } else if x < 0.375 {
+        2.0
+    } else if x < 0.4375 {
+        1.0
+    } else if x < 0.5 {
+        0.5
+    } else {
+        0.25
+    }
+}
+
+/// Small stereo reverb (Schroeder/Freeverb style: 4 combs + 2 all-passes per side).
+pub struct Reverb {
+    comb: [[Vec<f32>; 4]; 2],
+    ci: [[usize; 4]; 2],
+    cf: [[f32; 4]; 2],
+    ap: [[Vec<f32>; 2]; 2],
+    ai: [[usize; 2]; 2],
+}
+
+impl Reverb {
+    pub fn new(sr: f32) -> Reverb {
+        let k = sr / 44100.0;
+        let cl = [1557, 1617, 1491, 1422];
+        let al = [556, 441];
+        let mk = |n: usize, side: usize| vec![0.0f32; ((n + side * 23) as f32 * k) as usize + 1];
+        Reverb {
+            comb: [std::array::from_fn(|j| mk(cl[j], 0)), std::array::from_fn(|j| mk(cl[j], 1))],
+            ci: [[0; 4]; 2],
+            cf: [[0.0; 4]; 2],
+            ap: [std::array::from_fn(|j| mk(al[j], 0)), std::array::from_fn(|j| mk(al[j], 1))],
+            ai: [[0; 2]; 2],
+        }
+    }
+    pub fn tick(&mut self, x: f32) -> (f32, f32) {
+        let mut o = [0f32; 2];
+        for s in 0..2 {
+            let mut acc = 0.0;
+            for j in 0..4 {
+                let b = &mut self.comb[s][j];
+                let i = self.ci[s][j];
+                let y = b[i];
+                self.cf[s][j] = y * 0.8 + self.cf[s][j] * 0.2;
+                b[i] = x + self.cf[s][j] * 0.86;
+                self.ci[s][j] = (i + 1) % b.len();
+                acc += y;
+            }
+            let mut y = acc * 0.25;
+            for j in 0..2 {
+                let b = &mut self.ap[s][j];
+                let i = self.ai[s][j];
+                let d = b[i];
+                b[i] = y + d * 0.5;
+                y = d - y;
+                self.ai[s][j] = (i + 1) % b.len();
+            }
+            o[s] = y;
+        }
+        (o[0], o[1])
+    }
 }
 
 const WN: usize = 1024;
@@ -418,11 +513,11 @@ impl Deck {
         self.a1 = 1.0 - (-2.0 * PI * 250.0 / sr).exp();
         self.a2 = 1.0 - (-2.0 * PI * 2500.0 / sr).exp();
     }
-    /// Returns (dry output after gain, echo send).
-    fn process(&mut self, out_sr: f32, tp: &TP) -> (f32, f32) {
+    /// Returns (dry output after gain, echo send, reverb send).
+    fn process(&mut self, out_sr: f32, tp: &TP) -> (f32, f32, f32) {
         let pcm = match self.pcm.take() {
             Some(p) => p,
-            None => return (0.0, 0.0),
+            None => return (0.0, 0.0, 0.0),
         };
         let stems = self.stems.take();
         for k in 0..NL {
@@ -436,7 +531,7 @@ impl Deck {
             Some(v) => v,
             None => {
                 self.playing = false;
-                return (0.0, 0.0);
+                return (0.0, 0.0, 0.0);
             }
         };
         if self.declick > 0 {
@@ -483,7 +578,7 @@ impl Deck {
         // Channel fader with an audio taper (fader^2), then trim.
         let out = y * tp.gain * self.trim * self.fader * self.fader;
         self.level = (self.level * 0.9995).max(out.abs());
-        (out, y * tp.echo)
+        (out, y * tp.echo, y * tp.rev)
     }
 }
 
@@ -531,6 +626,9 @@ pub struct Mixer {
     pub xf_curve: f32,
     sync_ctr: u32,
     cue_feed: f32,
+    rev: Reverb,
+    /// Loop roll in progress: (deck, loop start, beat length in track samples, current beats).
+    roll: Option<(usize, f64, f64, f64)>,
 }
 
 impl Mixer {
@@ -575,6 +673,8 @@ impl Mixer {
             xf_curve: 0.0,
             sync_ctr: 0,
             cue_feed: 0.0,
+            rev: Reverb::new(44100.0),
+            roll: None,
         };
         m.set_sr(44100.0);
         m
@@ -594,6 +694,7 @@ impl Mixer {
 
     pub fn set_sr(&mut self, sr: f32) {
         self.sr = sr;
+        self.rev = Reverb::new(sr);
         self.lpa = if sr > 30000.0 { 1.0 - (-2.0 * PI * 10500.0 / sr).exp() } else { 1.0 };
         for d in self.decks.iter_mut() {
             d.set_sr(sr);
@@ -957,6 +1058,12 @@ impl Mixer {
         }
         let beat = 60.0 / p.out_bpm_eff.max(40.0);
         self.delay = (((beat * 0.75) * self.sr) as usize).clamp(1000, self.dl.len() - 1);
+        self.roll = None;
+        if p.style == Style::LoopRoll {
+            let d = &mut self.decks[out];
+            let spb = SR as f64 * 60.0 / d.bpm.max(40.0) as f64;
+            self.roll = Some((out, d.pos, spb, 0.0));
+        }
         self.trans = Some(Trans { out, inn, total: (p.dur_secs * self.sr).max(1.0) as u32, elapsed: 0, style: p.style, script: p.script });
         // A mix hands over control: no manual lock on either deck from here on.
         self.decks[out].sync = false;
@@ -1005,6 +1112,20 @@ impl Mixer {
             }
             tp[t.out] = o;
             tp[t.inn] = i;
+            if let Some((d, a, spb, cur)) = self.roll {
+                let b = loop_roll_beats(x);
+                if b != cur {
+                    let dk = &mut self.decks[d];
+                    dk.loop_on = true;
+                    dk.loop_a = a;
+                    dk.loop_b = a + b * spb;
+                    if dk.pos >= dk.loop_b {
+                        dk.pos = a + (dk.pos - a) % (b * spb);
+                        dk.need_reset = true;
+                    }
+                    self.roll = Some((d, a, spb, b));
+                }
+            }
             // keep the crossfader display following the automatic mix
             let target = if t.inn == 1 { x } else { 1.0 - x };
             self.xfader = target;
@@ -1015,16 +1136,18 @@ impl Mixer {
         }
         let mut sum = 0f32;
         let mut send = 0f32;
+        let mut rsend = 0f32;
         let mut cue = 0f32;
         let neutral = TP::neutral();
         for d in 0..2 {
             if self.decks[d].playing && !self.decks[d].hold {
                 // A DJ-only deck is pre-fader: the crossfader / automatic mix never mutes it.
                 let dj_only = !self.decks[d].to_main;
-                let (o, e) = self.decks[d].process(sr, if dj_only { &neutral } else { &tp[d] });
+                let (o, e, rv) = self.decks[d].process(sr, if dj_only { &neutral } else { &tp[d] });
                 if self.decks[d].to_main {
                     sum += o;
                     send += e;
+                    rsend += rv;
                 }
                 if self.decks[d].to_dj {
                     cue += o;
@@ -1043,8 +1166,9 @@ impl Mixer {
         self.dr[self.wpos] = self.echo_fb * el;
         self.wpos = (self.wpos + 1) % n;
         let mono = (sum + 0.0) * self.master;
-        let la = mono + el * 0.8 * self.master;
-        let ra = mono + er * 0.8 * self.master;
+        let (rl, rr) = self.rev.tick(rsend * 0.5);
+        let la = mono + (el * 0.8 + rl) * self.master;
+        let ra = mono + (er * 0.8 + rr) * self.master;
         self.lpo[0] += self.lpa * (la - self.lpo[0]);
         self.lpo[1] += self.lpa * (ra - self.lpo[1]);
         let l = (self.lpo[0] * 0.9).tanh();
@@ -1064,6 +1188,9 @@ impl Mixer {
             if t.elapsed >= t.total {
                 let t = *t;
                 self.decks[t.out].playing = false;
+                if let Some((d, ..)) = self.roll.take() {
+                    self.decks[d].loop_on = false;
+                }
                 self.decks[t.out].level = 0.0;
                 self.active = t.inn;
                 let d = &mut self.decks[t.inn];
@@ -1125,6 +1252,31 @@ mod tests {
         let after = m.phase_ms(1).unwrap().abs();
         assert!(after < 5.0, "phase {} ms -> {} ms", before, after);
         assert!((m.decks[1].eff_bpm() - 124.0).abs() < 0.5);
+    }
+
+    #[test]
+    fn loop_roll_and_reverb_wash_run_clean() {
+        for style in [Style::LoopRoll, Style::ReverbWash] {
+            let mut m = mixer_with_decks();
+            m.decks[0].bpm = 124.0;
+            m.decks[0].playing = true;
+            m.decks[0].pos = 40000.0;
+            m.decks[1].bpm = 124.0;
+            let dur = 16.0 * 60.0 / 124.0;
+            m.pending = Some(Pending { deck_in: 1, trigger: 40000.0, start_pos: 10_000.0, in_rate: 1.0, dur_secs: dur, style, out_bpm_eff: 124.0, script: None });
+            m.render_virtual(dur + 1.0);
+            assert!(m.trans.is_none(), "{:?} finished", style);
+            assert_eq!(m.active, 1);
+            assert!(!m.decks[0].loop_on, "loop released after the roll");
+            assert!(m.peak_seen.is_finite() && m.peak_seen > 0.0);
+        }
+    }
+
+    #[test]
+    fn loop_roll_halves() {
+        assert_eq!(loop_roll_beats(0.1), 4.0);
+        assert_eq!(loop_roll_beats(0.3), 2.0);
+        assert_eq!(loop_roll_beats(0.45), 0.5);
     }
 
     #[test]

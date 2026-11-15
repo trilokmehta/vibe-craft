@@ -15,3 +15,15 @@ No original product exists to measure; every value is a design choice from the r
 | Queue | keeps 4 tracks, avoids last 8 played, penalises same artist | estimated |
 | Mood energy targets | Chill .30, Party .85, Workout .80, Focus .42, Romantic .25, Discovery .55 | estimated |
 | Controls | Space pause, Left/Right prev/next, M mix now, D auto DJ, 1-4 tabs, Up/Down volume, L like | estimated |
+
+## Learned from the training DJ sets (training 1/2/3)
+
+| Habit seen in the real mixes | Value | Now in the engine |
+|---|---|---|
+| Time each song plays | median 37-45 s (15-27% of the song) | party pacing: may leave after 30% of a song (calm / 32-beat blends keep 55%) |
+| Where songs are entered | ~10% in, rarely at the very start | entry points chosen past the intro (unchanged) |
+| Tempo shift on a song | median 3-5%, up to 11% | beat-match allowed up to 16% (unchanged) |
+| BPM step after shifting | ~1% | tempo weight raised 2.2 -> 3.0 |
+| Camelot distance | 0-1 almost always | key weight 1.6 -> 0.9 (tempo is the main cue; key clashes are hidden with FX) |
+| Groove similarity | | dance weight 0.5 -> 0.7 |
+| Transition tricks | short punchy mixes, loops, echo / reverb throws | new styles: Loop roll (1 bar -> 1/8 then drop on the one), Reverb wash; party sets rotate Blend / Filter+Echo / Loop roll, key clashes alternate Echo out / Reverb wash |

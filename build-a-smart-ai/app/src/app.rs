@@ -404,11 +404,17 @@ impl App {
         } else if !matched {
             (Style::EchoOut, 8, 1.0)
         } else if ks < 0.45 {
-            (Style::EchoOut, 8, r)
-        } else if calm || (!quick && self.set.intensity < 0.7) {
+            // key clash: like the training DJs, hide it behind an echo or a reverb throw
+            if nt % 2 == 0 { (Style::EchoOut, 8, r) } else { (Style::ReverbWash, 8, r) }
+        } else if calm || (!quick && self.set.intensity < 0.5) {
             (Style::Blend, bi, r)
         } else {
-            (Style::FilterEcho, bi.min(16), r)
+            // party sets: vary the tricks (blend / filter + echo / loop roll), as in the training mixes
+            match nt % 3 {
+                0 if !quick => (Style::LoopRoll, 16, r),
+                1 => (Style::FilterEcho, bi.min(16), r),
+                _ => (Style::Blend, bi.min(16), r),
+            }
         };
         let dur = if style == Style::Fade {
             if force {
@@ -485,7 +491,7 @@ impl App {
         // Lock the beats where the songs actually overlap: line up the drum hits there.
         // A section start was snapped to the drawn bar grid: keep it there (grid-to-grid) instead of
         // letting the onset search shift it off the bar line.
-        let in_pos = if !classic && sec_next.is_none() && matches!(style, Style::Blend | Style::FilterEcho) {
+        let in_pos = if !classic && sec_next.is_none() && matches!(style, Style::Blend | Style::FilterEcho | Style::LoopRoll) {
             let a_audio = ta.audio();
             align_entry(&a_audio, trigger, rate, &tin_audio, in_pos, in_rate, 60.0 / out_eff.max(40.0) as f64, (dur as f64).min(10.0))
         } else {
