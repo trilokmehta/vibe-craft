@@ -151,6 +151,10 @@ pub struct App {
     /// Where the zoom view was drawn last frame (the mouse wheel zooms there instead of scrolling).
     pub zoom_rect: (f32, f32, f32, f32),
     pub drag: Option<(f32, u8)>,
+    /// Part of a deck's song chosen on its waveform: (track, start, end) in samples.
+    pub deck_sel: [Option<(usize, f64, f64)>; 2],
+    /// Drag in progress on a deck waveform: (mouse x at grab, deck).
+    pub deck_drag: Option<(f32, usize)>,
     pub search: String,
     pub loader: Option<std::sync::Arc<Mutex<crate::tracks::Progress>>>,
     pub use_demo: bool,
@@ -244,6 +248,8 @@ impl App {
             knob_grab: None,
             zoom_rect: (0.0, 0.0, 0.0, 0.0),
             drag: None,
+            deck_sel: [None, None],
+            deck_drag: None,
             search: String::new(),
             loader: None,
             use_demo: true,
@@ -409,11 +415,18 @@ impl App {
         } else if calm || (!quick && self.set.intensity < 0.5) {
             (Style::Blend, bi, r)
         } else {
-            // party sets: vary the tricks (blend / filter + echo / loop roll), as in the training mixes
-            match nt % 3 {
-                0 if !quick => (Style::LoopRoll, 16, r),
-                1 => (Style::FilterEcho, bi.min(16), r),
-                _ => (Style::Blend, bi.min(16), r),
+            // party sets: pick the trick from the energy move, vary the rest (as in the training mixes)
+            let rise = tin.energy - ta.energy;
+            if rise > 0.12 && !quick {
+                (Style::LoopRoll, 16, r) // building up: roll the loop, drop into the bigger song
+            } else if rise < -0.12 {
+                (Style::ReverbWash, 8, r) // coming down: let the old song wash away
+            } else if ks >= 0.85 {
+                (Style::Blend, bi.min(16), r) // same key: a long clean bass-swap blend sounds best
+            } else if nt % 2 == 0 {
+                (Style::FilterEcho, bi.min(16), r)
+            } else {
+                (Style::Blend, bi.min(16), r)
             }
         };
         let dur = if style == Style::Fade {

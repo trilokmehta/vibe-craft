@@ -512,7 +512,8 @@ pub fn out_points(t: &Track) -> Vec<MixPoint> {
         } else {
             "phrase end"
         };
-        let score = 0.9 * drop + 0.4 * vf + if end { 0.6 } else { 0.0 };
+        let phrase = if (i - fb) % 8 == 0 { 0.2 } else { 0.0 };
+        let score = 0.9 * drop + 0.4 * vf + phrase + if end { 0.6 } else { 0.0 };
         v.push(MixPoint { pos: t.a.origin + i as f64 * ba, score, kind, lvl: ep / level });
         i += 4;
     }
@@ -543,7 +544,7 @@ pub fn in_points(t: &Track) -> Vec<MixPoint> {
         } else {
             "section start"
         };
-        v.push(MixPoint { pos: t.a.origin + j as f64 * ba, score: 0.5 * rise + start + 0.4 * vf, kind, lvl: en / level });
+        v.push(MixPoint { pos: t.a.origin + j as f64 * ba, score: 0.5 * rise + start + 0.4 * vf + if (j - fb) % 8 == 0 { 0.2 } else { 0.0 }, kind, lvl: en / level });
         j += 4;
     }
     v

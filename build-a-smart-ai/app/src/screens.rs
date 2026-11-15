@@ -12,17 +12,17 @@ impl App {
         let lib = self.lib.clone();
         let t = &lib[id];
         let accent = hsv(t.hue / 360.0, 0.45, 1.0);
-        rrect(x, y, w, 150.0, 14.0, Color::new(1.0, 1.0, 1.0, 0.07));
-        art(x + 14.0, y + 34.0, 100.0, t);
-        draw_text(label, x + 14.0, y + 24.0, 16.0, accent);
-        let tx = x + 126.0;
-        let mw = w - 138.0;
-        draw_text(&fit(&t.title, 24.0, mw), tx, y + 54.0, 24.0, WHITE);
-        draw_text(&fit(&t.artist, 18.0, mw), tx, y + 76.0, 18.0, Color::new(1.0, 1.0, 1.0, 0.65));
-        draw_text(&format!("{:.1} BPM", eff), tx, y + 102.0, 22.0, accent);
-        draw_text(&format!("{} / {}", camelot_str(t.a.key, t.a.minor), key_name(t.a.key, t.a.minor)), tx, y + 124.0, 18.0, WHITE);
-        draw_text("Energy", tx, y + 144.0, 14.0, Color::new(1.0, 1.0, 1.0, 0.5));
-        self.energy_bar(tx + 52.0, y + 138.0, mw - 56.0, t.energy, accent);
+        // compact card (108 px) so the whole Smart DJ screen fits without scrolling
+        rrect(x, y, w, 108.0, 14.0, Color::new(1.0, 1.0, 1.0, 0.07));
+        art(x + 12.0, y + 14.0, 80.0, t);
+        let tx = x + 104.0;
+        let mw = w - 116.0;
+        draw_text(label, tx, y + 20.0, 14.0, accent);
+        draw_text(&fit(&t.title, 22.0, mw), tx, y + 44.0, 22.0, WHITE);
+        draw_text(&fit(&t.artist, 16.0, mw), tx, y + 63.0, 16.0, Color::new(1.0, 1.0, 1.0, 0.65));
+        draw_text(&format!("{:.1} BPM", eff), tx, y + 88.0, 20.0, accent);
+        draw_text(&format!("{} / {}", camelot_str(t.a.key, t.a.minor), key_name(t.a.key, t.a.minor)), tx + 100.0, y + 88.0, 16.0, WHITE);
+        self.energy_bar(tx, y + 96.0, mw, t.energy, accent);
     }
 
     pub fn smart_dj(&mut self, w: f32) {
@@ -47,7 +47,7 @@ impl App {
             };
             self.track_card(lx + cw + 16.0, y, cw, "UP NEXT", n, eff_n);
         }
-        y += 166.0;
+        y += 118.0;
         rrect(lx, y, lw, 376.0, 14.0, Color::new(1.0, 1.0, 1.0, 0.05));
         self.tx("mix", "LIVE MIX", lx + 16.0, y + 26.0, 16.0, accent);
         draw_text(&fit("Drag on a song to play only that section. Click a point chip to choose where to mix.", 14.0, lw - 420.0), lx + 100.0, y + 26.0, 14.0, Color::new(1.0, 1.0, 1.0, 0.5));
@@ -152,6 +152,8 @@ impl App {
         if let Some(sc) = self.armed.as_ref().and_then(|ar| ar.script) {
             y = self.layer_timeline(&sc, prog, lx, y, lw, accent);
         }
+        let show_why = narrow || !self.advanced;
+        if show_why {
         rrect(lx, y, lw, 190.0, 14.0, Color::new(accent.r, accent.g, accent.b, 0.10));
         self.tx("explain", "WHY THIS TRACK NEXT", lx + 16.0, y + 26.0, 16.0, accent);
         let mut ey = y + 52.0;
@@ -174,26 +176,55 @@ impl App {
             }
         }
         y += 206.0;
+        }
         let left_end = y;
         let (rx, rw) = if narrow { (pad, w - 2.0 * pad) } else { (w * 0.58 + 8.0, w * 0.42 - pad - 8.0) };
-        let mut ry = if narrow { left_end } else { HDR + 14.0 - self.scroll };
-        rrect(rx, ry, rw, 520.0, 14.0, Color::new(1.0, 1.0, 1.0, 0.05));
-        self.tx("controls", "DJ CONTROLS", rx + 16.0, ry + 26.0, 16.0, accent);
-        ry += 40.0;
+        let ry0 = if narrow { left_end } else { HDR + 14.0 - self.scroll };
+        let sw = rw - 32.0;
+        let adv = self.advanced;
+        // how many mood-chip rows fit
+        let mut mrows = 1.0f32;
+        let mut mxp = 0.0f32;
+        for m in MOODS {
+            let wd = tw(m.name(), 18.0) + 22.0;
+            if mxp + wd > sw {
+                mrows += 1.0;
+                mxp = 0.0;
+            }
+            mxp += wd + 6.0;
+        }
+        let ch = 40.0 + 46.0 + 16.0 + mrows * 36.0 + 3.0 * 46.0 + 4.0;
+        rrect(rx, ry0, rw, ch, 14.0, Color::new(1.0, 1.0, 1.0, 0.05));
+        self.tx("controls", "DJ CONTROLS", rx + 16.0, ry0 + 26.0, 16.0, accent);
+        let mut ry = ry0 + 40.0;
+        // one row: Auto DJ | genre | pro decks
+        let third = (sw - 12.0) / 3.0;
         let auto = self.set.auto;
-        if self.button(rx + 16.0, ry, rw - 32.0, 40.0, if auto { "AUTO DJ  ON" } else { "AUTO DJ  OFF" }, auto, accent) {
+        if self.button(rx + 16.0, ry, third, 34.0, if auto { "AUTO DJ  ON" } else { "AUTO DJ  OFF" }, auto, accent) {
             self.set.auto = !self.set.auto;
             self.dirty = true;
         }
-        ry += 58.0;
-        draw_text("MOOD", rx + 16.0, ry, 15.0, Color::new(1.0, 1.0, 1.0, 0.5));
-        ry += 10.0;
+        let gl = self.set.genre.clone().unwrap_or_else(|| "Any genre".to_string());
+        if self.button(rx + 16.0 + third + 6.0, ry, third, 34.0, &gl, self.set.genre.is_some(), accent) {
+            let idx = match &self.set.genre {
+                None => 0,
+                Some(g) => self.genres.iter().position(|x| x == g).map(|p| p + 1).unwrap_or(0),
+            };
+            self.set.genre = if idx < self.genres.len() { Some(self.genres[idx].clone()) } else { None };
+            self.rebuild_queue();
+        }
+        if self.button(rx + 16.0 + 2.0 * (third + 6.0), ry, third, 34.0, if adv { "Hide pro decks" } else { "Pro decks" }, adv, accent) {
+            self.advanced = !self.advanced;
+        }
+        ry += 46.0;
+        draw_text("MOOD", rx + 16.0, ry + 8.0, 14.0, Color::new(1.0, 1.0, 1.0, 0.5));
+        ry += 16.0;
         let mut mx = rx + 16.0;
         for m in MOODS {
             let wd = tw(m.name(), 18.0) + 22.0;
             if mx + wd > rx + rw - 16.0 {
                 mx = rx + 16.0;
-                ry += 38.0;
+                ry += 36.0;
             }
             let on = self.set.mood == m;
             if self.button(mx, ry, wd, 30.0, m.name(), on, hsv(mood_hue(m), 0.5, 1.0)) {
@@ -202,15 +233,14 @@ impl App {
             }
             mx += wd + 6.0;
         }
-        ry += 58.0;
-        let sw = rw - 32.0;
+        ry += 36.0 + 12.0;
         let mut v = self.set.energy;
-        draw_text(&format!("Energy: {:.0}%  (target {:.0}%)", v * 100.0, self.set.target_energy() * 100.0), rx + 16.0, ry, 17.0, WHITE);
-        if self.slider(rx + 16.0, ry + 18.0, sw, &mut v, accent) {
+        draw_text(&format!("Energy: {:.0}%  (target {:.0}%)", v * 100.0, self.set.target_energy() * 100.0), rx + 16.0, ry, 16.0, WHITE);
+        if self.slider(rx + 16.0, ry + 12.0, sw, &mut v, accent) {
             self.set.energy = v;
             self.rebuild_queue();
         }
-        ry += 54.0;
+        ry += 46.0;
         let mut v = self.set.intensity;
         let iname = if v < 0.34 {
             "long & smooth"
@@ -219,39 +249,29 @@ impl App {
         } else {
             "short & punchy"
         };
-        draw_text(&format!("Transition intensity: {}", iname), rx + 16.0, ry, 17.0, WHITE);
-        if self.slider(rx + 16.0, ry + 18.0, sw, &mut v, accent) {
+        draw_text(&format!("Transition intensity: {}", iname), rx + 16.0, ry, 16.0, WHITE);
+        if self.slider(rx + 16.0, ry + 12.0, sw, &mut v, accent) {
             self.set.intensity = v;
             self.dirty = true;
         }
-        ry += 54.0;
+        ry += 46.0;
         let mut v = self.set.discovery;
-        draw_text(&format!("Familiar {:.0}%  <->  Discovery {:.0}%", (1.0 - v) * 100.0, v * 100.0), rx + 16.0, ry, 17.0, WHITE);
-        if self.slider(rx + 16.0, ry + 18.0, sw, &mut v, accent) {
+        draw_text(&format!("Familiar {:.0}%  <->  Discovery {:.0}%", (1.0 - v) * 100.0, v * 100.0), rx + 16.0, ry, 16.0, WHITE);
+        if self.slider(rx + 16.0, ry + 12.0, sw, &mut v, accent) {
             self.set.discovery = v;
             self.rebuild_queue();
         }
-        ry += 54.0;
-        let gl = self.set.genre.clone().unwrap_or_else(|| "Any genre".to_string());
-        draw_text("Genre preference", rx + 16.0, ry, 17.0, WHITE);
-        if self.button(rx + 16.0, ry + 10.0, sw, 34.0, &gl, self.set.genre.is_some(), accent) {
-            let idx = match &self.set.genre {
-                None => 0,
-                Some(g) => self.genres.iter().position(|x| x == g).map(|p| p + 1).unwrap_or(0),
-            };
-            self.set.genre = if idx < self.genres.len() { Some(self.genres[idx].clone()) } else { None };
-            self.rebuild_queue();
+        let mut rb = ry0 + ch + 10.0;
+        // Layers take a lot of room: shown when the pro decks are hidden.
+        if !adv || narrow {
+            let lh = self.layers_panel(rx, rb, rw);
+            rb += lh + 10.0;
         }
-        ry += 66.0;
-        let adv = self.advanced;
-        if self.button(rx + 16.0, ry, sw, 36.0, if adv { "Hide pro decks" } else { "Show pro decks (2 virtual decks)" }, adv, accent) {
-            self.advanced = !self.advanced;
-        }
-        ry += 60.0;
-        let ly2 = (if narrow { left_end } else { HDR + 14.0 - self.scroll }) + 534.0;
-        let lh = self.layers_panel(rx, ly2, rw);
-        ry = ry.max(ly2 + lh + 10.0);
-        ry += self.queue_panel(rx, ry, rw, accent) + 10.0;
+        // The queue takes whatever height is left, so nothing needs scrolling.
+        let limit = if adv && !narrow { left_end } else { screen_height() - FTR - 8.0 };
+        let qrows = (((limit - rb) - 60.0) / 46.0).floor().clamp(2.0, 8.0) as usize;
+        rb += self.queue_panel(rx, rb, rw, accent, qrows) + 10.0;
+        let ry = rb;
         let mut bottom = left_end.max(ry);
         if self.advanced {
             bottom = self.pro_decks(pad, bottom + 4.0, w - 2.0 * pad);
@@ -320,8 +340,18 @@ impl App {
                     let spb = m.decks[d].spb();
                     let o = m.decks[d].origin;
                     let a = o + ((m.decks[d].pos - o) / spb).floor().max(0.0) * spb;
-                    m.decks[d].loop_a = a;
-                    m.decks[d].loop_b = a + 4.0 * spb;
+                    let sel = self.deck_sel[d].filter(|s| m.decks[d].track == Some(s.0));
+                    if let Some((_, sa, sb)) = sel {
+                        m.decks[d].loop_a = sa;
+                        m.decks[d].loop_b = sb;
+                        if m.decks[d].pos < sa || m.decks[d].pos >= sb {
+                            m.decks[d].pos = sa;
+                            m.decks[d].need_reset = true;
+                        }
+                    } else {
+                        m.decks[d].loop_a = a;
+                        m.decks[d].loop_b = a + 4.0 * spb;
+                    }
                     m.decks[d].loop_on = true;
                 }
             }
@@ -360,9 +390,26 @@ impl App {
                 // DJ only: play this deck in the headphones, never to the audience.
                 let on = !(m.decks[d].to_dj && !m.decks[d].to_main);
                 let ok = m.set_dj_only(d, on);
+                let sel = self.deck_sel[d].filter(|s| m.decks[d].track == Some(s.0));
+                let mut listening = false;
+                if ok && on {
+                    // a chosen part: loop just that part in the headphones, from its start
+                    if let Some((_, a, b)) = sel {
+                        let dk = &mut m.decks[d];
+                        dk.loop_a = a;
+                        dk.loop_b = b;
+                        dk.loop_on = true;
+                        dk.pos = a;
+                        dk.need_reset = true;
+                        dk.playing = true;
+                        listening = true;
+                    }
+                } else if ok && !on && sel.is_some() {
+                    m.decks[d].loop_on = false;
+                }
                 drop(m);
                 if ok {
-                    self.say(if on { "DJ only: this deck plays in your headphones, the audience cannot hear it" } else { "Back to the audience output" });
+                    self.say(if listening { "DJ only: the part you chose loops in your headphones, the audience cannot hear it" } else if on { "DJ only: this deck plays in your headphones, the audience cannot hear it. Tip: drag on the wave to pick a part first" } else { "Back to the audience output" });
                 } else if self.snap.active == d && self.snap.playing[d] {
                     self.say("That deck is on air - use the other deck for DJ only");
                 } else {
@@ -412,6 +459,7 @@ impl App {
                 );
                 let marks = vec![(t.a.origin, Color::new(0.3, 1.0, 0.6, 0.8)), (t.a.outro_start, Color::new(1.0, 0.7, 0.2, 0.9))];
                 self.wave(px + 16.0, py + 88.0, pw - 32.0, 56.0, t, Some(self.snap.pos[d]), &marks, accent);
+                self.deck_wave_select(d, i, px + 16.0, py + 88.0, pw - 32.0, 56.0, accent);
             } else {
                 draw_text("Empty", px + 16.0, py + 52.0, 20.0, Color::new(1.0, 1.0, 1.0, 0.4));
             }
@@ -762,6 +810,66 @@ impl App {
 }
 
 impl App {
+    /// Drag on a deck's waveform to choose a part of the song (click clears it). With a part
+    /// chosen, "DJ only" loops just that part in the headphones; Loop loops it on the deck.
+    fn deck_wave_select(&mut self, d: usize, tid: usize, x: f32, y: f32, w: f32, h: f32, accent: Color) {
+        let len = self.lib[tid].samples() as f64;
+        let hv = self.hov(x, y, w, h);
+        if self.click && hv {
+            self.deck_drag = Some((self.mx, d));
+        }
+        let to = |px: f32| (((px - x) / w).clamp(0.0, 1.0) as f64) * len;
+        if let Some((sx, dd)) = self.deck_drag {
+            if dd == d {
+                let cx = self.mx.clamp(x, x + w);
+                if self.down {
+                    let (l, r) = (sx.min(cx), sx.max(cx));
+                    if r - l > 4.0 {
+                        draw_rectangle(l, y, r - l, h, Color::new(1.0, 1.0, 1.0, 0.25));
+                    }
+                } else {
+                    self.deck_drag = None;
+                    if (cx - sx).abs() > 6.0 {
+                        let (mut a, mut b) = (to(sx.min(cx)), to(sx.max(cx)));
+                        let mut m = self.mixer.lock().unwrap();
+                        if m.quantize {
+                            let o = m.decks[d].origin;
+                            let spb = m.decks[d].spb();
+                            a = (o + ((a - o) / spb).round() * spb).clamp(0.0, len);
+                            b = (o + ((b - o) / spb).round() * spb).clamp(0.0, len);
+                        }
+                        if b - a < SR as f64 * 0.5 {
+                            b = (a + SR as f64 * 0.5).min(len);
+                        }
+                        // already listening in the headphones: switch to the new part at once
+                        let dk = &mut m.decks[d];
+                        if dk.to_dj && !dk.to_main && dk.loop_on {
+                            dk.loop_a = a;
+                            dk.loop_b = b;
+                            dk.pos = a;
+                            dk.need_reset = true;
+                        }
+                        drop(m);
+                        self.deck_sel[d] = Some((tid, a, b));
+                        self.say("Part chosen. Press DJ only to listen to just this part in your headphones (Loop loops it here)");
+                    } else {
+                        self.deck_sel[d] = None;
+                    }
+                }
+            }
+        }
+        if let Some((st, a, b)) = self.deck_sel[d] {
+            if st == tid {
+                let x0 = x + (a / len) as f32 * w;
+                let x1 = x + (b / len) as f32 * w;
+                draw_rectangle(x0, y, (x1 - x0).max(1.0), h, Color::new(accent.r, accent.g, accent.b, 0.25));
+                draw_rectangle(x0, y, 2.0, h, accent);
+                draw_rectangle(x1 - 2.0, y, 2.0, h, accent);
+                draw_text(&format!("{} - {}", clock_str(a), clock_str(b)), x0 + 5.0, y + 14.0, 14.0, WHITE);
+            }
+        }
+    }
+
     fn section_overlay(&self, x: f32, y: f32, w: f32, h: f32, tid: usize, c: Color) {
         if let Some(Some((a, b))) = self.sections.get(tid) {
             let len = self.lib[tid].samples() as f64;

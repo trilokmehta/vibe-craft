@@ -93,22 +93,22 @@ pub fn trans_params(style: Style, x: f32) -> (TP, TP) {
     match style {
         Style::Blend => {
             o.gain = (1.0 - 0.18 * sm(0.4, 0.55, x)) * (sm(0.55, 1.0, x) * PI / 2.0).cos();
-            o.low = 1.0 - sm(0.42, 0.56, x);
+            o.low = 1.0 - sm(0.46, 0.54, x);
             o.mid = 1.0 - 0.6 * sm(0.45, 1.0, x);
             o.high = 1.0 - 0.8 * sm(0.5, 1.0, x);
             i.gain = (0.92 + 0.08 * sm(0.5, 0.7, x)) * (sm(0.0, 0.5, x) * PI / 2.0).sin();
-            i.low = sm(0.42, 0.56, x);
+            i.low = sm(0.46, 0.54, x);
             i.mid = 0.3 + 0.7 * sm(0.1, 0.6, x);
             i.high = 0.4 + 0.6 * sm(0.0, 0.5, x);
-            o.stem = [1.0 - sm(0.12, 0.38, x), 1.0 - 0.5 * sm(0.45, 1.0, x), 1.0 - sm(0.42, 0.56, x), 1.0 - sm(0.5, 0.95, x), 1.0 - 0.5 * sm(0.45, 1.0, x)];
-            i.stem = [sm(0.62, 0.9, x), sm(0.1, 0.55, x), sm(0.42, 0.56, x), sm(0.0, 0.3, x), sm(0.1, 0.55, x)];
+            o.stem = [1.0 - sm(0.12, 0.38, x), 1.0 - 0.5 * sm(0.45, 1.0, x), 1.0 - sm(0.46, 0.54, x), 1.0 - sm(0.5, 0.95, x), 1.0 - 0.5 * sm(0.45, 1.0, x)];
+            i.stem = [sm(0.62, 0.9, x), sm(0.1, 0.55, x), sm(0.46, 0.54, x), sm(0.0, 0.3, x), sm(0.1, 0.55, x)];
         }
         Style::FilterEcho => {
             o.gain = (sm(0.8, 1.0, x) * PI / 2.0).cos();
             o.filt = 1.0 - 0.9 * sm(0.1, 0.85, x);
             o.echo = 0.7 * sm(0.3, 0.5, x);
             i.gain = (sm(0.4, 0.85, x) * PI / 2.0).sin();
-            i.low = sm(0.5, 0.7, x);
+            i.low = sm(0.5, 0.6, x);
             i.filt = 0.25 + 0.75 * sm(0.4, 1.0, x);
             o.stem = [1.0 - sm(0.1, 0.35, x), 1.0, 1.0 - sm(0.4, 0.7, x), 1.0, 1.0];
             i.stem = [sm(0.65, 0.95, x), 1.0, sm(0.5, 0.7, x), sm(0.0, 0.3, x), 1.0];
@@ -382,7 +382,7 @@ pub struct Deck {
     frac: f64,
     expect: f64,
     stretching: bool,
-    need_reset: bool,
+    pub need_reset: bool,
     lp2: f32,
     f1: f32,
     f2: f32,
@@ -627,6 +627,8 @@ pub struct Mixer {
     sync_ctr: u32,
     cue_feed: f32,
     rev: Reverb,
+    /// Effect-bus filter state: echo tail lowpass (L, R) and reverb-send highpass.
+    fxs: [f32; 3],
     /// Loop roll in progress: (deck, loop start, beat length in track samples, current beats).
     roll: Option<(usize, f64, f64, f64)>,
 }
@@ -674,6 +676,7 @@ impl Mixer {
             sync_ctr: 0,
             cue_feed: 0.0,
             rev: Reverb::new(44100.0),
+            fxs: [0.0; 3],
             roll: None,
         };
         m.set_sr(44100.0);
@@ -1160,13 +1163,20 @@ impl Mixer {
         // echo bus (ping-pong)
         let n = self.dl.len();
         let ri = (self.wpos + n - self.delay) % n;
-        let el = self.dl[ri];
-        let er = self.dr[ri];
+        // each repeat gets darker (one-pole lowpass ~3.2 kHz), like a tape / analog delay
+        let fa = 1.0 - (-2.0 * PI * 3200.0 / sr).exp();
+        self.fxs[0] += fa * (self.dl[ri] - self.fxs[0]);
+        self.fxs[1] += fa * (self.dr[ri] - self.fxs[1]);
+        let el = self.fxs[0];
+        let er = self.fxs[1];
         self.dl[self.wpos] = send + self.echo_fb * er;
         self.dr[self.wpos] = self.echo_fb * el;
         self.wpos = (self.wpos + 1) % n;
         let mono = (sum + 0.0) * self.master;
-        let (rl, rr) = self.rev.tick(rsend * 0.5);
+        // keep the bass out of the reverb: highpass the send at ~220 Hz
+        let ha = 1.0 - (-2.0 * PI * 220.0 / sr).exp();
+        self.fxs[2] += ha * (rsend - self.fxs[2]);
+        let (rl, rr) = self.rev.tick((rsend - self.fxs[2]) * 0.5);
         let la = mono + (el * 0.8 + rl) * self.master;
         let ra = mono + (er * 0.8 + rr) * self.master;
         self.lpo[0] += self.lpa * (la - self.lpo[0]);

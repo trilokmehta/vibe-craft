@@ -237,9 +237,9 @@ impl App {
     }
 
     /// Compact up-next queue on the DJ screen: change the next song without leaving the mix.
-    pub fn queue_panel(&mut self, x: f32, y: f32, w: f32, accent: Color) -> f32 {
+    pub fn queue_panel(&mut self, x: f32, y: f32, w: f32, accent: Color, max_rows: usize) -> f32 {
         let lib = self.lib.clone();
-        let rows = self.queue.len().min(8);
+        let rows = self.queue.len().min(max_rows);
         let rh = 46.0;
         let h = 52.0 + rows as f32 * rh + 8.0;
         rrect(x, y, w, h, 14.0, Color::new(1.0, 1.0, 1.0, 0.05));

@@ -363,7 +363,7 @@ fn comb(on: &[f32], phase: f32, p: f32) -> f32 {
 }
 
 fn prior(b: f32) -> f32 {
-    let l = (b / 115.0).log2() / 0.8;
+    let l = (b / 120.0).log2() / 0.8;
     (-0.5 * l * l).exp()
 }
 
@@ -455,13 +455,16 @@ fn goertzel(seg: &[f32], freq: f32) -> f32 {
 
 pub fn detect_key(pcm: &[f32]) -> (u8, bool, f32) {
     let len = pcm.len();
-    let seg_len = (24 * SR as usize).min(len);
-    let start = (len / 4).min(len - seg_len);
-    let seg = &pcm[start..start + seg_len];
+    let seg_len = (10 * SR as usize).min(len);
     let mut chroma = [0f32; 12];
-    for m in 36..96 {
-        let f = midi_freq(m as f32);
-        chroma[m % 12] += goertzel(seg, f);
+    for frac in [0.2f32, 0.45, 0.7] {
+        let start = ((len as f32 * frac) as usize).min(len - seg_len);
+        let seg = &pcm[start..start + seg_len];
+        for m in 36..96 {
+            let f = midi_freq(m as f32);
+            // sqrt: one loud bass note must not outvote the rest of the harmony
+            chroma[m % 12] += goertzel(seg, f).sqrt();
+        }
     }
     let maj = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88];
     let min = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17];
