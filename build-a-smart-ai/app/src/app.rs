@@ -11,6 +11,8 @@ use std::sync::{Arc, Mutex};
 /// The DJ may pick the Loop roll (the playing song loops one bar, repeating faster, then the next
 /// song drops in) on its own. Switched off: it sounded like a stuck loop in the middle of a blend.
 /// The style itself is still in the engine.
+/// Enter the next song at a word shared with the outgoing singer (needs the words of both songs).
+const WORD_MIX: bool = true;
 const LOOP_ROLL_AUTO: bool = false;
 
 pub fn hsv(h: f32, s: f32, v: f32) -> Color {
@@ -473,7 +475,7 @@ impl App {
             beats as f32 * 60.0 / out_eff.max(40.0)
         };
         let l_trk = if style == Style::Fade { dur as f64 * sr * rate } else { beats as f64 * spb };
-        let (trigger, in_pos, why) = if force {
+        let (trigger, mut in_pos, mut why) = if force {
             let t = if style != Style::Fade {
                 let b = next_boundary(origin, 4.0 * spb, pos + 0.35 * sr * rate);
                 if b + l_trk > a_end {
@@ -520,6 +522,21 @@ impl App {
             }
             (p, in_default, "mixing at the end of the song".to_string())
         };
+        // Shared word: when both songs' words are known, enter the next song at a word that
+        // matches (or rhymes with) the one the outgoing singer ends the phrase on.
+        if WORD_MIX && !classic && !force && !quick && sec_next.is_none() && matches!(style, Style::Blend | Style::FilterEcho) && beats > 0 {
+            if let (Some(wa), Some(wb)) = (crate::words::get(cur), crate::words::get(nt)) {
+                let sr_f = crate::tracks::SR as f64;
+                let bar_b = 4.0 * 60.0 / tin.a.bpm as f64 * sr_f;
+                let beat_a = 60.0 / ta.a.bpm as f64 * sr_f;
+                let lo = tin.a.origin + tin.a.first_bar as f64 * bar_b;
+                let hi = (tin.a.origin + tin.a.last_bar as f64 * bar_b).min(0.55 * tin.samples() as f64).max(lo) - (beats as f64 / 4.0 + 4.0) * bar_b;
+                if let Some(sh) = crate::words::find_shared_word(&wa, trigger, beat_a, &wb, tin.a.origin, bar_b, lo, hi, beats as f64) {
+                    why = format!("{}; shared word: leaves on \"{}\", {} \"{}\" at {} instead", why, sh.word_out, if sh.exact { "enters on the same word" } else { "enters on the rhyme" }, sh.word_in, crate::dj::clock_str(sh.in_pos));
+                    in_pos = sh.in_pos;
+                }
+            }
+        }
         let tin_audio = tin.audio(); // decode before taking the audio lock
         // Phase 3: a layer-by-layer script when both songs have AI layers.
         let (script, why) = {

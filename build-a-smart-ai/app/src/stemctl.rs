@@ -20,6 +20,14 @@ impl App {
     /// Separates layers only for the song that is playing and the one about to play.
     pub fn manage_stems(&mut self) {
         let mixer = self.mixer.clone();
+        // New words arrived for a song: plan the upcoming mix again (shared-word entry).
+        {
+            static SEEN: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+            let v = crate::words::VERSION.load(Ordering::SeqCst);
+            if SEEN.swap(v, Ordering::SeqCst) != v {
+                self.dirty = true;
+            }
+        }
         if !self.use_stems {
             // Layers off: stop any separation that is running and free the AI engine.
             if let Some((id, job)) = self.stem_job.take() {
@@ -145,6 +153,7 @@ impl App {
                         }
                     };
                     if s.ai {
+                        crate::words::request(tid, path.clone(), pcm.len(), s.data[0].clone(), from);
                         *j2.profile.lock().unwrap() = Some(Arc::new(crate::vibe::profile(&s, origin, bar, nbars)));
                     }
                     eprintln!("[{:7.1}s] stems: done in {:.0} s (ai {})", crate::sep::uptime(), t0.elapsed().as_secs_f32(), s.ai);

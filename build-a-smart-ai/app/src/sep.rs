@@ -59,7 +59,7 @@ fn runtime_path() -> PathBuf {
     data_dir().join("runtime").join(RUNTIME_VER).join("onnxruntime.dll")
 }
 
-fn runtime_ok() -> bool {
+pub(crate) fn runtime_ok() -> bool {
     runtime_path().metadata().map(|m| m.len() > 10_000_000).unwrap_or(false)
 }
 
@@ -104,7 +104,7 @@ pub fn ensure_model() {
     });
 }
 
-fn download(url: &str, path: &Path, min_bytes: u64, sha256: Option<&str>, done: &mut f32, total: f32) -> Result<(), String> {
+pub(crate) fn download(url: &str, path: &Path, min_bytes: u64, sha256: Option<&str>, done: &mut f32, total: f32) -> Result<(), String> {
     use sha2::Digest;
     std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
     let part = path.with_extension("part");
@@ -280,19 +280,24 @@ impl Out {
 }
 
 /// Runs the model on one 7.8 s stereo window ([6, 2, SEG] stems once finished).
+/// Loads our own ONNX Runtime once (Windows has an older onnxruntime.dll in System32).
+pub(crate) fn init_runtime() -> Result<(), String> {
+    static ERR: Mutex<Option<String>> = Mutex::new(None);
+    RUNTIME_INIT.call_once(|| {
+        if let Err(e) = ort::init_from(runtime_path().to_string_lossy().to_string()).commit() {
+            *ERR.lock().unwrap() = Some(e.to_string());
+        }
+    });
+    match ERR.lock().unwrap().clone() {
+        Some(e) => Err(format!("AI runtime failed to load: {}", e)),
+        None => Ok(()),
+    }
+}
+
 fn infer(input: &[f32]) -> Result<Out, String> {
     let mut g = ENGINE.lock().unwrap();
     if g.is_none() {
-        let mut init_err = None;
-        RUNTIME_INIT.call_once(|| {
-            // Always load our own copy: Windows has an older onnxruntime.dll in System32.
-            if let Err(e) = ort::init_from(runtime_path().to_string_lossy().to_string()).commit() {
-                init_err = Some(e.to_string());
-            }
-        });
-        if let Some(e) = init_err {
-            return Err(format!("AI runtime failed to load: {}", e));
-        }
+        init_runtime()?;
         let want_gpu = std::env::var("VC_CPU").is_err();
         let e = match if want_gpu { split_engine() } else { Err("CPU forced".into()) } {
             Ok(e) => {
@@ -381,7 +386,7 @@ fn infer(input: &[f32]) -> Result<Out, String> {
 }
 
 /// Stereo decode at the file's own rate, capped at 9 minutes like the main decoder.
-fn decode_stereo(path: &Path) -> Result<(Vec<f32>, Vec<f32>, u32), String> {
+pub(crate) fn decode_stereo(path: &Path) -> Result<(Vec<f32>, Vec<f32>, u32), String> {
     use symphonia::core::audio::SampleBuffer;
     use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
     use symphonia::core::formats::FormatOptions;
@@ -434,7 +439,7 @@ fn decode_stereo(path: &Path) -> Result<(Vec<f32>, Vec<f32>, u32), String> {
 }
 
 /// Windowed-sinc resampler (good enough for analysis-grade audio, no aliasing on 2:1).
-fn resample(x: &[f32], from: u32, to: u32) -> Vec<f32> {
+pub(crate) fn resample(x: &[f32], from: u32, to: u32) -> Vec<f32> {
     if from == to {
         return x.to_vec();
     }
@@ -573,7 +578,7 @@ fn run_model(l: &[f32], r: &[f32], progress: &AtomicU32, cancel: &std::sync::ato
 
 // ---- disk cache -----------------------------------------------------------
 
-fn cache_key(path: &Path, n: usize) -> Option<String> {
+pub(crate) fn cache_key(path: &Path, n: usize) -> Option<String> {
     let md = std::fs::metadata(path).ok()?;
     let mtime = md.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs();
     let mut h: u64 = 0xcbf29ce484222325;

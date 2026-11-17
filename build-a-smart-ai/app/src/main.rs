@@ -15,6 +15,7 @@ mod update;
 mod sep;
 mod split;
 mod vibe;
+mod words;
 
 use app::{App, Armed};
 use engine::{Mixer, Style};
@@ -204,6 +205,15 @@ async fn main() {
             Ok(()) => std::process::exit(0),
             Err(e) => {
                 eprintln!("sep-test failed: {}", e);
+                std::process::exit(1);
+            }
+        }
+    }
+    if let Some(song) = arg("--words-test") {
+        match words::self_test(std::path::Path::new(&song)) {
+            Ok(()) => std::process::exit(0),
+            Err(e) => {
+                eprintln!("words-test failed: {}", e);
                 std::process::exit(1);
             }
         }
