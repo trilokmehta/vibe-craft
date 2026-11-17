@@ -145,3 +145,17 @@ def test_two_song_mix_is_limited_not_turned_down(tmp_path):
     assert np.max(np.abs(result.audio)) <= 0.981
     # the loud body of A is not turned down for the sake of the overlap
     assert np.max(np.abs(result.audio[:, 20 * result.sr : 28 * result.sr])) > 0.9
+
+
+def test_b_may_start_a_few_ms_before_its_file(tmp_path):
+    """beat_this can report the first bar line at -0.005 s."""
+    from automix.planner.simple import plan_simple_transition
+    from automix.renderer.crossfade import render_transition
+
+    plan = plan_simple_transition(_fake_analysis(120, 32), _fake_analysis(126, 32))
+    shift = -0.005 - plan.b_start
+    plan.b_start += shift
+    plan.b_end += shift
+    plan.b_anchors = [t + shift for t in plan.b_anchors]
+    result = render_transition(make_track(120, 32)[None, :], SR, make_track(126, 32)[None, :], SR, plan)
+    assert result.audio.shape[1] > 0 and np.all(np.isfinite(result.audio))

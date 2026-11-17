@@ -90,10 +90,12 @@ def _stretch_b(b: np.ndarray, sr: int, plan: TransitionPlan) -> tuple[np.ndarray
 
     Also returns the sample of B where the untouched rest continues.
     """
-    first = int(round(plan.b_start * sr))
+    # A beat tracker can put the first bar line a few ms before the start of the file.
+    first = max(0, int(round(plan.b_start * sr)))
     last = min(int(round((plan.b_end + SEAM) * sr)), b.shape[1])
     seam = last / sr - plan.b_end
-    src = np.concatenate([np.array(plan.b_anchors) - plan.b_start, [last / sr - plan.b_start]])
+    src = np.concatenate([np.array(plan.b_anchors) - first / sr, [last / sr - first / sr]])
+    src = np.maximum(src, 0.0)
     dst = np.concatenate([plan.out_anchors, [plan.out_anchors[-1] + seam]])
     out, engine = stretch_to_map(b[:, first:last], sr, src, dst)
 
