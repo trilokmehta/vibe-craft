@@ -639,12 +639,28 @@ fn cache_save(key: &str, s: &Stems, n: usize) {
 /// `mix` is that pcm; anything the model leaves out goes into Music so the layers
 /// always add back up to the original.
 pub fn separate_file(path: &Path, mix: &[f32], progress: &AtomicU32, cancel: &std::sync::atomic::AtomicBool) -> Result<Stems, String> {
+    separate_file_from(path, mix, 0, progress, cancel)
+}
+
+/// Skipping less than this (seconds of song) is not worth a partial result.
+const MIN_SKIP_SECS: f32 = 8.0;
+
+/// Like `separate_file`, but only the part of the song from sample `from` (22 kHz, same
+/// units as `mix`) onwards goes through the model, so a song whose start is silent, or that is
+/// already half played, is ready much sooner. Before `from` the Music layer carries the plain
+/// mix (the other layers are silent), so the song still sounds right if it is played from there.
+/// Partial results are cached under their own key; a cached full result is used when there is one.
+pub fn separate_file_from(path: &Path, mix: &[f32], from: usize, progress: &AtomicU32, cancel: &std::sync::atomic::AtomicBool) -> Result<Stems, String> {
     let n = mix.len();
-    let key = cache_key(path, n);
-    if let Some(k) = &key {
-        if let Some(s) = cache_load(k, n) {
-            progress.store(100, Ordering::Relaxed);
-            return Ok(s);
+    let from = if (from as f32) < MIN_SKIP_SECS * crate::tracks::SR as f32 || from >= n.saturating_sub(crate::tracks::SR as usize * 8) { 0 } else { from };
+    let full_key = cache_key(path, n);
+    let key = if from == 0 { full_key.clone() } else { cache_key(path, n.wrapping_add(from.wrapping_mul(1_000_003))) };
+    for k in [&full_key, &key] {
+        if let Some(k) = k {
+            if let Some(s) = cache_load(k, n) {
+                progress.store(100, Ordering::Relaxed);
+                return Ok(s);
+            }
         }
     }
     if model_state() != ModelState::Ready {
@@ -652,11 +668,14 @@ pub fn separate_file(path: &Path, mix: &[f32], progress: &AtomicU32, cancel: &st
     }
     let (l, r, sr) = decode_stereo(path)?;
     let (l, r) = (resample(&l, sr, MSR), resample(&r, sr, MSR));
-    let st = run_model(&l, &r, progress, cancel)?;
+    let skip = ((from as f64 * MSR as f64 / crate::tracks::SR as f64) as usize).min(l.len().saturating_sub(1));
+    let st = run_model(&l[skip..], &r[skip..], progress, cancel)?;
     drop((l, r));
     // Model order: drums, bass, other, vocals, guitar, piano.
     let mono = |i: usize| -> Vec<f32> {
-        let mut d = resample(&st[i], MSR, SR);
+        // silent before `from` (see above), then the separated part
+        let mut d = vec![0.0f32; from];
+        d.extend(resample(&st[i], MSR, SR));
         d.resize(n, 0.0);
         d
     };

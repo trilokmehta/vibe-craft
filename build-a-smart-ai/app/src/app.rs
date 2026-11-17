@@ -428,6 +428,13 @@ impl App {
         if force || quick {
             bi = bi.min(8);
         }
+        // Layer build (settings option): needs the separated layers of both songs.
+        let build_on = self.set.layer_build
+            && !force
+            && !quick
+            && !CLASSIC_AUTOMIX.load(std::sync::atomic::Ordering::Relaxed)
+            && self.profiles.iter().any(|p| p.0 == cur)
+            && self.profiles.iter().any(|p| p.0 == nt);
         // Tempos too far apart to beat-match: a long, smooth crossfade (like AutoMix), not an echo cut.
         let (style, beats, in_rate) = if !auto || !grid_ok || (!matched && !classic) {
             (Style::Fade, 0u32, 1.0)
@@ -436,6 +443,8 @@ impl App {
         } else if ks < 0.45 {
             // key clash: like the training DJs, hide it behind an echo or a reverb throw
             if nt % 2 == 0 { (Style::EchoOut, 8, r) } else { (Style::ReverbWash, 8, r) }
+        } else if build_on {
+            (Style::Blend, 32, r) // layer build: a long blend, the layers enter one after the other
         } else if calm || (!quick && self.set.intensity < 0.5) {
             (Style::Blend, bi, r)
         } else {
@@ -517,6 +526,10 @@ impl App {
             let pa = self.profiles.iter().find(|p| p.0 == cur).map(|p| p.1.clone());
             let pb = self.profiles.iter().find(|p| p.0 == nt).map(|p| p.1.clone());
             match (pa, pb, style) {
+                (Some(_), Some(_), Style::Blend | Style::FilterEcho) if build_on => {
+                    let (sc, desc) = crate::vibe::script_build(dur);
+                    (Some(sc), format!("{}; {}", why, desc))
+                }
                 (Some(pa), Some(pb), Style::Blend | Style::FilterEcho | Style::Fade) if !classic && !force => {
                     let t_bars = if style == Style::Fade { dur * out_eff.max(40.0) / 240.0 } else { beats as f32 / 4.0 };
                     let (sc, desc) = crate::vibe::script(&pa, trigger, &pb, in_pos, t_bars, style != Style::Fade);
@@ -580,7 +593,7 @@ impl App {
         } else {
             why
         };
-        let why = if style != Style::Fade && beats != bi_cap && beats > 0 && !force && !quick {
+        let why = if style != Style::Fade && beats != bi_cap && beats > 0 && !force && !quick && !build_on {
             format!("{}; blend of {} beats fits {}'s {:.0} s intro", why, beats, tin.title, intro_quiet)
         } else {
             why

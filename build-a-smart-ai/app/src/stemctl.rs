@@ -109,13 +109,25 @@ impl App {
                     (a.origin, 4.0 * crate::tracks::SR as f64 * 60.0 / a.bpm.max(40.0) as f64, a.bars.len())
                 };
                 eprintln!("[{:7.1}s] stems: start {} \"{}\" (current {}, next {:?})", crate::sep::uptime(), tid, self.lib[tid].title, self.current, self.queue.first().map(|q| q.track));
+                // Only separate from where the song actually starts (leading silence is skipped), and
+                // for the playing song from just before the playhead: what is already played is not needed.
+                let from = {
+                    let a = &self.lib[tid].a;
+                    let mut f = a.origin + a.first_bar.saturating_sub(2) as f64 * bar;
+                    let m = self.mixer.lock().unwrap();
+                    let d = &m.decks[m.active];
+                    if d.track == Some(tid) && d.playing {
+                        f = f.max(d.pos - 8.0 * bar);
+                    }
+                    f.max(0.0) as usize
+                };
                 let track = self.lib[tid].clone();
                 let j2 = job.clone();
                 std::thread::spawn(move || {
                     let t0 = std::time::Instant::now();
                     // Decode here, not on the drawing thread.
                     let pcm = track.audio();
-                    let ai = path.as_ref().map(|p| crate::sep::separate_file(p, &pcm, &j2.pct, &j2.cancel));
+                    let ai = path.as_ref().map(|p| crate::sep::separate_file_from(p, &pcm, from, &j2.pct, &j2.cancel));
                     // A cancelled run stops between model windows. If it got through the model
                     // anyway, keep the result (it is already in the disk cache).
                     if j2.cancel.load(Ordering::Relaxed) && !matches!(ai, Some(Ok(_))) {

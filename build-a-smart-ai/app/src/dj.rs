@@ -76,11 +76,13 @@ pub struct Settings {
     pub genre: Option<String>,
     pub intensity: f32,
     pub discovery: f32,
+    /// Layer build: the next song enters in stages (music, melody, drums + bass, vocals).
+    pub layer_build: bool,
 }
 
 impl Settings {
     pub fn new() -> Settings {
-        Settings { auto: true, mood: Mood::Party, energy: 0.5, genre: None, intensity: 0.5, discovery: 0.35 }
+        Settings { auto: true, mood: Mood::Party, energy: 0.5, genre: None, intensity: 0.5, discovery: 0.35, layer_build: false }
     }
     pub fn target_energy(&self) -> f32 {
         (self.mood.base_energy() + (self.energy - 0.5) * 0.8).clamp(0.05, 1.0)

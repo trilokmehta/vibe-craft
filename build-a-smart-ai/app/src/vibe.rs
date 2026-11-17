@@ -283,6 +283,41 @@ pub fn self_test(lib: &[crate::tracks::Track], n: usize) {
 
 // ---- Phase 3: staged, layer-by-layer transitions -------------------------
 
+/// "Layer build" script (an option in the settings): the next song enters in stages and the
+/// playing song leaves in the reverse order.
+///   next song:  music bed (5-8 s on its own) -> melody (3-5 s) -> drums + bass -> vocals
+///   this song:  vocals leave first -> drums + bass -> melody -> music bed last
+/// `secs` is the length of the blend. Windows are fractions of the blend. Two basslines never
+/// play together and the two drum kits overlap only for a moment around the swap.
+pub fn script_build(secs: f32) -> (crate::engine::Script, String) {
+    let t = secs.max(8.0);
+    let l = ((0.30 * t).clamp(5.0, 8.0) / t).min(0.38); // music alone
+    let m = ((0.20 * t).clamp(3.0, 5.0) / t).min(0.24); // melody joins
+    let sw = (l + m).min(0.62); // drums + bass swap
+    let sh = 0.04;
+    let win = |a: f32, b: f32| (a.clamp(0.0, 0.97), b.clamp(0.0, 1.0).max(a.clamp(0.0, 0.97) + 0.02).min(1.0));
+    let mut sc = [[(0.0f32, 1.0f32); NL]; 2];
+    // next song
+    sc[1][MU] = win(0.0, l);
+    sc[1][ME] = win(l, l + m);
+    sc[1][BA] = win(sw, sw + sh);
+    sc[1][DR] = win(sw, sw + 0.08);
+    let vs = (sw + 0.12).min(0.78);
+    sc[1][V] = win(vs, vs + 0.18);
+    // playing song
+    sc[0][V] = win(0.0, 0.14);
+    sc[0][BA] = win(sw - sh, sw);
+    sc[0][DR] = win(sw - 0.02, sw + 0.06);
+    sc[0][ME] = win(sw + 0.04, (sw + 0.24).min(0.95));
+    sc[0][MU] = win(sw + 0.12, 1.0);
+    let why = format!(
+        "layer build: music {:.0} s -> melody {:.0} s -> drums + bass -> vocals; the playing song leaves vocals first, music last",
+        l * t,
+        m * t
+    );
+    (sc, why)
+}
+
 /// Builds the per-layer fade windows for a blend `t_bars` long that leaves song A at
 /// `out_pos` and enters song B at `in_pos`. Windows snap to quarter bars.
 /// Default order: beats -> bass swap -> instruments/melody -> vocals.
@@ -596,4 +631,43 @@ pub fn overlaps(pa: &Profile, out_pos: f64, pb: &Profile, in_pos: f64, t_bars: f
         }
     }
     hits.map(|h| h as f32 / steps as f32 * dur_secs)
+}
+
+#[cfg(test)]
+mod build_tests {
+    use super::*;
+
+    #[test]
+    fn layers_enter_in_stages_and_leave_in_reverse() {
+        let (sc, why) = script_build(16.0);
+        let i = &sc[1];
+        let o = &sc[0];
+        // next song: music, then melody, then drums and bass, then vocals
+        assert!(i[MU].0 < i[ME].0 && i[ME].0 < i[BA].0 && i[BA].0 < i[V].0, "{}", why);
+        assert!((i[BA].0 - i[DR].0).abs() < 1e-6, "drums and bass arrive together");
+        // the music bed is alone for 5-8 s before the melody
+        let t = 16.0;
+        assert!(i[ME].0 * t >= 4.9 && i[ME].0 * t <= 8.1, "melody at {} s", i[ME].0 * t);
+        // playing song: vocals first, music last
+        assert!(o[V].1 <= o[DR].1 && o[DR].1 <= o[ME].1 && o[ME].1 <= o[MU].1, "{}", why);
+        // never two basslines: the playing song's bass is gone when the next one's starts
+        assert!(o[BA].1 <= i[BA].0 + 1e-6);
+        for l in 0..NL {
+            for s in 0..2 {
+                assert!(sc[s][l].0 >= 0.0 && sc[s][l].1 <= 1.0 && sc[s][l].1 > sc[s][l].0);
+            }
+        }
+    }
+
+    #[test]
+    fn short_blends_still_make_a_valid_script() {
+        for secs in [4.0f32, 8.0, 12.0, 32.0] {
+            let (sc, _) = script_build(secs);
+            for l in 0..NL {
+                for s in 0..2 {
+                    assert!(sc[s][l].1 > sc[s][l].0 && sc[s][l].1 <= 1.0);
+                }
+            }
+        }
+    }
 }

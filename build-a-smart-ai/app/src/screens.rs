@@ -193,7 +193,7 @@ impl App {
             }
             mxp += wd + 6.0;
         }
-        let ch = 40.0 + 46.0 + 16.0 + mrows * 36.0 + 3.0 * 46.0 + 4.0;
+        let ch = 40.0 + 46.0 + 16.0 + mrows * 36.0 + 3.0 * 46.0 + 38.0 + 4.0;
         rrect(rx, ry0, rw, ch, 14.0, Color::new(1.0, 1.0, 1.0, 0.05));
         self.tx("controls", "DJ CONTROLS", rx + 16.0, ry0 + 26.0, 16.0, accent);
         let mut ry = ry0 + 40.0;
@@ -255,6 +255,14 @@ impl App {
             self.dirty = true;
         }
         ry += 46.0;
+        let lb_label = if self.set.layer_build { "Layer build: ON" } else { "Layer build: off" };
+        if self.button(rx + 16.0, ry - 8.0, sw.min(240.0), 30.0, lb_label, self.set.layer_build, accent) {
+            self.set.layer_build = !self.set.layer_build;
+            self.dirty = true;
+        }
+        let hint = fit("music > melody > drums+bass > vocals", 14.0, (sw - sw.min(240.0) - 12.0).max(40.0));
+        draw_text(&hint, rx + 16.0 + sw.min(240.0) + 12.0, ry + 12.0, 14.0, Color::new(1.0, 1.0, 1.0, 0.5));
+        ry += 38.0;
         let mut v = self.set.discovery;
         draw_text(&format!("Familiar {:.0}%  <->  Discovery {:.0}%", (1.0 - v) * 100.0, v * 100.0), rx + 16.0, ry, 16.0, WHITE);
         if self.slider(rx + 16.0, ry + 12.0, sw, &mut v, accent) {
