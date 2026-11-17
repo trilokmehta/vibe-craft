@@ -9,3 +9,6 @@
 # and falls back to librosa when it is not.
 https://github.com/CPJKU/beat_this/archive/main.zip
 matplotlib>=3.7       # PSF-style - only for --plot debug pictures
+
+# Real-time player ("automix play"): output to the sound card.
+sounddevice>=0.4.6    # MIT - PortAudio bindings

@@ -376,3 +376,16 @@ For the whole idea of automatic DJ mixing, good starting points are:
 
 This project has no license file yet. MIT keeps things simple as long as GPL
 libraries such as pedalboard are not imported; choose GPL-3.0 if you want them.
+
+## Real-time player
+
+```powershell
+pip install sounddevice
+automix play "C:\path\to\folder" --order smart --limit 10
+automix play --list-devices          # then: --device 3
+```
+
+The set is mixed in a background thread, always about 60 seconds ahead of the
+speakers (`--buffer SECONDS`), so every transition has the full offline quality.
+Press Ctrl+C to stop. It cannot skip ahead: the set is planned in order. The
+first start analyzes every song (later starts use the cache).

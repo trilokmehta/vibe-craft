@@ -8,6 +8,8 @@
 
     automix my_folder/ -o set.wav
     automix a.mp3 b.mp3 c.mp3 d.mp3 -o set.wav --order smart
+
+    automix play my_folder/ --order smart
 """
 
 from __future__ import annotations
@@ -232,6 +234,56 @@ def _cmd_playlist(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_play(args: argparse.Namespace) -> int:
+    from .audio_io import find_audio_files
+    from .player import Player, _sounddevice_stream, list_devices
+
+    if args.list_devices:
+        print(list_devices())
+        return 0
+    try:
+        files = find_audio_files(args.inputs)
+    except FileNotFoundError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    if len(files) < 2:
+        print("A set needs at least two songs.", file=sys.stderr)
+        return 1
+
+    player = Player(
+        files,
+        buffer_seconds=args.buffer,
+        progress=print,
+        bars=args.bars,
+        cache_dir=args.cache_dir,
+        beat_backend=args.beats,
+        bass_swap=not args.no_bass_swap,
+        key_match=not args.no_key_shift,
+        smart=not args.simple,
+        style=args.style,
+        vocals=args.vocals,
+        order=args.order,
+        limit=args.limit,
+    )
+
+    def on_song(entry: dict) -> None:
+        how = f"  <- {entry['style']}" if entry.get("style") else ""
+        print(f"\nNow playing: {entry['title']}  ({entry['bpm']:.0f} BPM, {entry['key']}){how}")
+
+    print("Preparing the set (the first start analyzes every song; later starts use the cache)...")
+    try:
+        player.play(
+            stream_factory=lambda sr, cb: _sounddevice_stream(sr, cb, device=args.device),
+            on_song=on_song,
+        )
+    except (RuntimeError, ValueError) as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    if player.buffer.underruns:
+        print(f"\nThe mixer was too slow {player.buffer.underruns} time(s): try a bigger --buffer.")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="automix", description="DJ-style automatic song transitions."
@@ -322,6 +374,33 @@ def build_parser() -> argparse.ArgumentParser:
         "playlist", parents=[common], help="Mix a folder or a list of songs into one continuous file."
     )
     playlist.set_defaults(func=_cmd_playlist)
+
+    play = sub.add_parser(
+        "play", help="Play a folder or list of songs as a continuous mix, in real time."
+    )
+    play.add_argument("inputs", nargs="*", help="Audio files or folders.")
+    play.add_argument("--order", choices=["given", "smart"], default="given")
+    play.add_argument("--limit", type=int, default=None, metavar="N", help="Use only the first N songs.")
+    play.add_argument("--bars", type=int, default=16, help="Longest transition in bars (default 16).")
+    play.add_argument(
+        "--style", choices=["auto", "blend", "filter", "cut", "echo"], default="auto"
+    )
+    play.add_argument("--vocals", action="store_true", help="Vocal-aware mixing (Demucs stems).")
+    play.add_argument("--no-bass-swap", action="store_true")
+    play.add_argument("--no-key-shift", action="store_true")
+    play.add_argument("--simple", action="store_true", help="Simple transition points.")
+    play.add_argument("--beats", choices=["auto", "beat_this", "librosa"], default="auto")
+    play.add_argument("--cache-dir", default="automix_cache")
+    play.add_argument(
+        "--buffer",
+        type=float,
+        default=60.0,
+        metavar="SECONDS",
+        help="How far ahead of the speakers the mixer works (default 60).",
+    )
+    play.add_argument("--device", default=None, help="Output device number or name.")
+    play.add_argument("--list-devices", action="store_true", help="Show the output devices and exit.")
+    play.set_defaults(func=_cmd_play)
     return parser
 
 
@@ -332,7 +411,7 @@ def main(argv: list[str] | None = None) -> int:
             stream.reconfigure(errors="replace")
     # "automix a.mp3 b.mp3 -o out.wav" is a short form of "automix mix ...".
     argv = list(sys.argv[1:] if argv is None else argv)
-    if argv and argv[0] not in ("analyze", "mix", "playlist", "-h", "--help"):
+    if argv and argv[0] not in ("analyze", "mix", "playlist", "play", "-h", "--help"):
         argv.insert(0, "mix")
     args = build_parser().parse_args(argv)
     return args.func(args)

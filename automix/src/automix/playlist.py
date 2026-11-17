@@ -21,6 +21,7 @@ next to the WAV file (set.wav -> set.tracklist.txt).
 from __future__ import annotations
 
 import bisect
+import contextlib
 import dataclasses
 import statistics
 from pathlib import Path
@@ -79,7 +80,7 @@ def _fmt(seconds: float) -> str:
 
 def mix_playlist(
     paths: list[str | Path],
-    out_path: str | Path,
+    out_path: str | Path | None,
     bars: int = 16,
     cache_dir: str | Path | None = DEFAULT_CACHE_DIR,
     beat_backend: str = "auto",
@@ -92,6 +93,8 @@ def mix_playlist(
     limit: int | None = None,
     progress: Callable[[str], None] | None = None,
     sr: int = SET_SR,
+    sink: Callable[[np.ndarray], None] | None = None,
+    on_entry: Callable[[dict], None] | None = None,
 ) -> dict:
     """Mix `paths` into one continuous WAV file.
 
@@ -99,6 +102,10 @@ def mix_playlist(
     neighbours are easy to mix (see planner/order.py).
     limit: only use the first `limit` songs.
     progress: called with a line of text at every step.
+    out_path: the WAV file to write, or None to write no file.
+    sink: called with every piece of finished audio, (2, samples) floats at `sr`,
+    in order (the player uses this). It may block to slow the rendering down.
+    on_entry: called with each song's entry as soon as it is planned.
 
     Returns {"out", "tracklist", "duration", "entries"}. Every entry is a dict
     for one song: its start time in the set and how it was mixed in.
@@ -150,8 +157,9 @@ def mix_playlist(
             voice = _prepare(_stereo(stem, stem_sr, sr), sr, gain_db, semitones)
         return audio, voice
 
-    out_path = Path(out_path)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
+    if out_path is not None:
+        out_path = Path(out_path)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
     limiter = StreamLimiter(CEILING, sr)
     written = 0  # samples handed to the limiter so far
     entries: list[dict] = []
@@ -160,16 +168,29 @@ def mix_playlist(
     say(f"[1/{len(songs)}] {first_path.name}")
     cur_audio, cur_voice = load_song(0, gain_for(current), 0)
     entries.append(_entry(first_path, current, 0.0, None))
+    if on_entry:
+        on_entry(entries[-1])
     emit_from = 0  # sample of the current song where its own part of the set begins
 
-    with sf.SoundFile(str(out_path), "w", samplerate=sr, channels=2, subtype="PCM_16") as file:
+    with contextlib.ExitStack() as stack:
+        file = (
+            stack.enter_context(sf.SoundFile(str(out_path), "w", samplerate=sr, channels=2, subtype="PCM_16"))
+            if out_path is not None
+            else None
+        )
+
+        def emit(ready: np.ndarray) -> None:
+            if ready.shape[1]:
+                ready = np.clip(ready, -1.0, 1.0)
+                if file is not None:
+                    file.write(ready.T)
+                if sink is not None:
+                    sink(ready)
 
         def write(chunk: np.ndarray) -> None:
             nonlocal written
             written += chunk.shape[1]
-            ready = limiter.push(chunk)
-            if ready.shape[1]:
-                file.write(np.clip(ready, -1.0, 1.0).T)
+            emit(limiter.push(chunk))
 
         for k in range(1, len(songs)):
             path, nxt = songs[k]
@@ -206,6 +227,8 @@ def mix_playlist(
                 if not steady
             ]
             entries.append(_entry(path, nxt, entry_time, plan, warnings))
+            if on_entry:
+                on_entry(entries[-1])
 
             write(result.audio[:, first : result.out_resume])
             cur_audio, cur_voice = next_audio, next_voice
@@ -216,16 +239,16 @@ def mix_playlist(
             del result
 
         write(cur_audio[:, emit_from:])
-        tail = limiter.flush()
-        if tail.shape[1]:
-            file.write(np.clip(tail, -1.0, 1.0).T)
+        emit(limiter.flush())
 
     duration = written / sr
-    tracklist = out_path.with_suffix(".tracklist.txt")
-    tracklist.write_text(_tracklist_text(out_path, entries, duration), encoding="utf-8")
+    tracklist = None
+    if out_path is not None:
+        tracklist = out_path.with_suffix(".tracklist.txt")
+        tracklist.write_text(_tracklist_text(out_path, entries, duration), encoding="utf-8")
     return {
-        "out": str(out_path),
-        "tracklist": str(tracklist),
+        "out": str(out_path) if out_path is not None else None,
+        "tracklist": str(tracklist) if tracklist else None,
         "duration": duration,
         "entries": entries,
     }
