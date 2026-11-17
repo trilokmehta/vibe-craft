@@ -1,0 +1,5 @@
+songs/
+tools/
+trainer/target/
+*.mp3
+*.zip

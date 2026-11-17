@@ -1,0 +1,61 @@
+== timeline (38 songs placed in the mix) ==
+   23.1-   65.4s  02 - Ishq Di Galli Vich - No Entry ｜ Sal bpm 132.0 x0.970  8A  E0.47  plays song 27-68s of 262s
+  146.1-  197.6s  04 - Dil Na Diya (Full Song) Krrish ｜ Hr bpm 138.5 x0.950  9A  E0.17  plays song 70-118s of 333s
+  221.6-  270.7s  05 - Nach Baliye                         bpm 134.0 x0.990  1A  E0.61  plays song 54-103s of 362s
+  291.6-  308.3s  06 - Jeene Ke Hain Chaar Din - Video Son bpm 140.5 x0.930  5A  E0.57  plays song 59-75s of 255s
+  358.6-  398.6s  07 - Just Chill Full HD Video Song ｜ Mai bpm 131.0 x1.010  7A  E0.45  plays song 28-69s of 260s
+  447.4-  516.0s  08 - It's the Time to Disco              bpm 132.0 x0.990  11A  E0.52  plays song 45-113s of 333s
+  612.9-  663.5s  10 - Signal - Video Song ｜ Bhagam Bhag ｜ bpm 137.5 x0.970  11B  E0.33  plays song 36-85s of 242s
+  704.4-  755.0s  11 - Ding Dong Dole (Full Song) Film - K bpm 134.8 x0.970  4B  E0.51  plays song 72-121s of 345s
+  800.1-  856.4s  13 - Mirchi                              bpm 130.0 x1.030  10A  E0.65  plays song 10-68s of 193s
+  876.8-  915.7s  14 - PARTYNEXTDOOR, Drake - NOKIA        bpm 126.0 x1.030  8A  E0.84  plays song 19-59s of 241s
+  953.0- 1010.4s  15 - Drake - Janice STFU                 bpm 126.0 x1.050  12A  E0.88  plays song 18-78s of 236s
+ 1123.7- 1154.8s  16 - Dhak Dhak                           bpm 133.0 x0.990  2A  E0.90  plays song 57-88s of 202s
+ 1175.3- 1197.1s  18 - Boom Shaka (Official Music Video) ｜ bpm 130.0 x1.030  3A  E0.92  plays song 18-41s of 219s
+ 1237.0- 1273.8s  20 - White Brown Black - Avvy Sra ｜ Kara bpm 120.0 x1.090  11A  E0.70  plays song 10-50s of 171s
+ 1305.3- 1319.9s  21 - KR$NA - Joota Japani ｜ Official Mus bpm 130.0 x1.010  5A  E0.77  plays song 132-147s of 160s
+ 1355.0- 1381.0s  22 - Gangsta - Karan Aujla Ft. YG ｜ Rupa bpm 130.0 x0.990  8B  E0.93  plays song 24-50s of 194s
+ 1442.5- 1484.5s  24 - Laal Peeli Akhiyaan (Song) Shahid K bpm 130.0 x1.010  5A  E0.61  plays song 7-50s of 195s
+ 1577.6- 1635.0s  26 - The Bilz & Kashif - Single ｜ Offici bpm 121.0 x1.010  5A  E0.71  plays song 10-68s of 260s
+ 1704.6- 1740.6s  27 - Where's The Party Tonight Full Vide bpm 137.5 x0.950  4A  E0.46  plays song 47-82s of 319s
+ 1909.2- 1941.1s  30 - Subha Hone Na De 8K Full Video Song bpm 132.0 x0.970  3A  E0.50  plays song 153-184s of 268s
+ 1945.0- 1988.2s  31 - Icona Pop - I Love It (feat. Charli bpm 126.0 x1.030  3B  E0.65  plays song 21-65s of 167s
+ 1995.8- 2027.3s  32 - Sadi Gali Lyrical Video Song ｜ Tanu bpm 130.0 x1.010  1B  E0.89  plays song 27-59s of 284s
+ 2040.2- 2072.0s  33 - Chaar Botal Vodka Full Song Feat. Y bpm 123.0 x1.050  9B  E0.73  plays song 25-58s of 230s
+ 2177.9- 2206.7s  36 - 4K Remastered - Uff Teri Ada ｜ Deep bpm 121.8 x0.990  11B  E0.46  plays song 55-84s of 280s
+ 2452.0- 2470.4s  41 - Ghafoor (Full Video) ｜ Ba＊＊＊ds Of B bpm 130.0 x1.010  10A  E0.28  plays song 6-25s of 164s
+ 2505.4- 2526.7s  42 - TiK ToK                             bpm 120.0 x1.090  9B  E0.71  plays song 17-40s of 200s
+ 2625.6- 2650.7s  44 - Full Video： Pappu Can't Dance ｜ Jaa bpm 125.0 x1.050  4A  E0.56  plays song 43-69s of 258s
+ 2668.0- 2698.3s  45 - Dance Pe Chance ｜ Full Song ｜ Rab N bpm 128.0 x1.030  6B  E0.47  plays song 19-50s of 255s
+ 2715.1- 2758.5s  46 - Shut Up & Bounce                    bpm 122.0 x1.070  11B  E0.63  plays song 20-67s of 278s
+ 2758.2- 2815.7s  47 - Aal Izz Well – 3 Idiots ｜ Aamir Kha bpm 120.0 x1.090  6B  E0.44  plays song 45-108s of 284s
+ 2859.3- 2882.1s  48 - Ra One： Chammak Challo 8K Video Son bpm 139.6 x0.990  3B  E0.54  plays song 107-130s of 251s
+ 2888.7- 2930.0s  49 - Desi Girl Full Video - Dostana｜John bpm 141.7 x0.970  6B  E0.50  plays song 19-59s of 298s
+ 2955.0- 3002.3s  50 - Barbie Girl                         bpm 130.0 x1.050  12A  E0.80  plays song 19-69s of 198s
+ 3039.8- 3114.6s  51 - Aaj Ki Raat Full Video Song [4K 216 bpm 137.0 x0.990  11A  E0.18  plays song 30-104s of 355s
+ 3133.9- 3156.4s  52 - KR$NA - I Guess ｜ Official Music Vi bpm 110.4 x0.990  3B  E0.81  plays song 19-41s of 186s
+ 3212.1- 3252.2s  53 - KR$NA ft. Seedhe Maut - Hola Amigo  bpm  93.3 x1.030  8B  E0.80  plays song 45-86s of 243s
+ 3324.5- 3354.7s  55 - True Stories -  AP Dhillon ｜ Shinda bpm  98.7 x1.030  2B  E0.80  plays song 14-45s of 122s
+ 3482.3- 3505.1s  57 - DIVINE - You & I ｜ Kalyani Priyadar bpm 103.0 x0.990  8B  E0.85  plays song 54-77s of 217s
+
+== habits ==
+seconds each song plays   p10/50/90: 21 / 37 / 57
+fraction of song played   p10/50/90: 0.10 / 0.15 / 0.25
+entry point in song (frac of length) p10/50/90: 0.05 / 0.11 / 0.25; entered at the opening: 2/38
+tempo shift applied to songs (%) p50/90/max: 3.0 / 7.0 / 9.0
+raw BPM step between consecutive songs (%) p50/90/max: 1.6 / 3.2 / 4.5
+effective BPM step after DJ shifting (%) p50/90/max: 0.5 / 1.2 / 1.4
+overlap length (s) p10/50/90: -7.6 / -6.6 / -3.9
+overlap length (beats) p10/50/90: -16.4 / -15.1 / -8.2
+Camelot number distance between consecutive songs (0..6): [1, 0, 1, 1, 0, 1, 0]
+
+== learned transition weights over 55 real transitions ==
+features: tempo-fit, key-fit, energy-closeness, dance-closeness
+learned (raw):       [1.765, 0.355, 0.799, 0.394]
+learned (scaled to the engine's current total 5.7): [3.04, 0.61, 1.37, 0.68]
+existing engine weights: [2.2, 1.6, 1.4, 0.5]
+                        loglik   top1   top3   mean-rank(0=best, 0.5=random)
+random order            -3.195   0.06   0.17   0.50
+existing weights        -2.989   0.15   0.44   0.30
+learned weights         -2.923   0.13   0.36   0.29
+tempo-fit range check: songs shifted up to 9.0% in the mix

@@ -1,46 +1,46 @@
-g	House	-0.235
-g	Unknown	-0.4700004
-g	Techno	-0.11
-g	Focus	-0.07499999
-g	Synthwave	0.120000005
-g	Workout	-0.125
+g	Unknown	-1.7300007
 g	Pop	-0.235
-a	Gajendra Rana	-0.15
-a	Priyanka Meher, Deepak Meher	0.018000001
-a	Gaurav Bisht, Mamta Arya	-0.132
-a	Unknown artist	0.09
-a	Ambient Atlas	-0.08999999
-a	Lalit Mohan Joshi	-0.282
-a	Pandavaas	0.018000001
-a	Manoj Arya	0.018000001
-a	Balbir Rana, Kalpana Chauhan	0.036000002
-a	Pulse Theory	-0.15
-a	Fauji Lalit Mohan Joshi	0.036000002
-a	Balveer singh rana	0.09
-a	Govind Digari, Khushi Joshi	0.018000001
-a	Mahesh Joshi	0.036000002
-a	Kito Vale	-0.15
-a	Gajendra Rana, Meena Rana	-0.023999995
-a	The Afterglow	0.14400001
-a	Aria Lane	-0.282
-a	Mara Voss	-0.132
-a	Inder Arya	-0.15
-a	B.K. Samant	0.09
-a	Diksha Dhoundiyal, Vijay Prakash	0.018000001
-a	Nova Drift	-0.132
-a	Pappu Karki	-0.22800002
-a	Gaurav Bisht	-0.22800002
-a	Gunjan Dangwal, Ranjeet Singh, Vishal Sharma	-0.11400001
-a	Inder Arya, Jyoti Rana	0.036000002
-a	Your music	0.018000001
-a	Jagmohan Digari	0.19800003
-a	Lalit Mohan Joshi, Jitendra Tomkyal	0.018000001
+g	Workout	-0.125
+g	Synthwave	0.78999984
+g	House	-0.235
+g	Focus	-0.07499999
+g	Techno	-0.11
 a	Inder Arya, Anisha Ranghar, Raj Tiger	0.036000002
+a	Pandavaas	0.018000001
+a	Amit Saagar	-0.078
+a	Jagmohan Digari	0.21600004
 a	Late.Pappu Karki, Meena Rana	-0.132
+a	Fauji Lalit Mohan Joshi	-0.060000002
+a	Govind Digari, Khushi Joshi	0.018000001
+a	Ambient Atlas	-0.08999999
+a	Gaurav Bisht, Mamta Arya	-0.528
+a	Pappu Karki	-0.22800002
+a	Kito Vale	-0.15
+a	Inder Arya, Jyoti Rana	0.036000002
+a	Nova Drift	-0.132
+a	Unknown artist	0.20400006
+a	Inder Arya	-0.15
+a	Balveer singh rana	-0.060000002
+a	Mara Voss	-0.132
+a	Priyanka Meher, Deepak Meher	0.018000001
+a	Gaurav Bisht	-0.22800002
 a	Chandra Prakash	0.036000002
-a	Amit Saagar	0.072000004
+a	Aria Lane	-0.282
+a	Gajendra Rana	-0.15
+a	Your music	0.018000001
 a	Jitendra Tomkyal	-0.042000003
+a	The Afterglow	0.9480002
+a	Lalit Mohan Joshi, Jitendra Tomkyal	0.018000001
 a	Diksha Dhoundiyal, Fauji Dayal Mehra	0.036000002
+a	Mahesh Joshi	-0.0059999973
+a	Gunjan Dangwal, Ranjeet Singh, Vishal Sharma	-0.11400001
+a	Gajendra Rana, Meena Rana	-0.72
+a	Pulse Theory	-0.15
+a	B.K. Samant	-0.042000003
+a	Manoj Arya	0.018000001
+a	Diksha Dhoundiyal, Vijay Prakash	0.018000001
+a	Lalit Mohan Joshi	-0.264
+a	Balbir Rana, Kalpana Chauhan	0.036000002
 t	Midnight Circuit	Nova Drift	2	1	0	0	-0.22
 t	Glass Elevator	Nova Drift	0	0	0	0	0
 t	Skyline Rush	Kito Vale	1	1	0	0	-0.25
@@ -52,85 +52,65 @@ t	Tidewater	Hazel Moon	0	0	0	0	0
 t	Back Alley Gold	Rook & Co	0	0	0	0	0
 t	Sunset Boulevard	Aria Lane	3	2	0	0	-0.47
 t	Electric Heart	Aria Lane	0	0	0	0	0
-t	Chrome Horizon	The Afterglow	4	0	0	0	0.24000001
+t	Chrome Horizon	The Afterglow	22	1	0	0	1.5799997
 t	Overdrive	Pulse Theory	1	1	0	0	-0.25
 t	Last Dance	Luna Reyes	0	0	0	0	0
 t	Deep Focus Loop	Ambient Atlas	11	3	0	0	-0.14999998
-t	Baali Chha Umar Tara	Fauji Lalit Mohan Joshi	0	0	0	0	0
-t	Bakuri	Sandeep Sonu	0	0	0	0	0
-t	Barkha Holi	Gajendra Rana, Meena Rana	0	0	0	0	0
-t	Bhalu Lagadu Bhanuli - Folk	Rawmats	0	0	0	0	0
-t	Bhalu Lagudu Meru Muluk	Hema Negi Karasi	0	0	0	0	0
-t	Binduli	B.K. Samant	0	0	0	0	0
-t	CHORI DE HEERA (Kumaoni Song)	Gaurav Bisht	0	0	0	0	0
-t	Chaitwali	Amit Saagar	0	0	0	0	0
-t	Chandi Batana Daju Kurti Kolar Maa Trailer	Prahlad Mehra, Meena Rana	0	0	0	0	0
-t	Chhori Lachhima	Anil Rawat, Maya Upadhyay	0	0	0	0	0
-t	Chudi Teri Hath Ma - Pahadi	Manoj Arya	0	0	0	0	0
-t	Dev Bhumi - Uttarakhandi	Lalit Mohan Joshi, Jitendra Tomkyal	0	0	0	0	0
-t	Didihat Ki Chhamna Chhori	Pappu Karki	0	0	0	0	0
-t	Eeja Bwari Lyo.	Jagmohan Digari	0	0	0	0	0
-t	Eja Re Chet Beshakh Mero Munsyara - Kumaoni	Pappu Karki	0	0	0	0	0
-t	Ghughuti	Kishan Mahipal	0	0	0	0	0
-t	Hafta Me - Kumaoni Geet	Inder Arya	0	0	0	0	0
-t	Hey Deepa Mijaaj	Lalit Mohan Joshi	0	0	0	0	0
-t	Hey Deepa	Unknown artist	0	0	0	0	0
-t	Hey Suwa	Gajendra Rana	1	1	0	0	-0.25
-t	Hima Sadi Biloj Ma	Diksha Dhoundiyal, Fauji Dayal Mehra	0	0	0	0	0
-t	Hwalo Lagyo Himali Dana 1 - Pahadi	Mahesh Joshi	1	0	0	0	0.03
-t	Kajal ko Tikk Lage Le	Pappu Karki	0	0	0	0	0
-t	Kan me double jhumka	Jagmohan Digari	0	0	0	0	0
-t	Kya Bhali Lagchhi Bimla	Lalit Mohan Joshi	0	0	0	0	0
-t	Laagnya Chaumaas	Lalit Mohan Joshi	1	1	0	0	-0.25
-t	Lachima	Diksha Dhoundiyal, Vijay Prakash	0	0	0	0	0
-t	Lali Ho Lali Honsiya - Pahadi	Govind Digari, Khushi Joshi	0	0	0	0	0
-t	Mai Jaulo	Lalit Mohan Joshi	0	0	0	0	0
-t	Main Nija Pardesh - Pahadi	Gaurav Bisht	0	0	0	0	0
-t	Maya Ka Jhamela Sangeeta - Uttrakhandi	Jitendra Tomkyal	0	0	0	0	0
-t	Me Jachhu Kamala	Chandra Prakash	0	0	0	0	0
-t	Meri Bimu	B.K. Samant	0	0	0	0	0
-t	Meri Haunsiya	Unknown artist	0	0	0	0	0
-t	Meri Soniya Ghumli	Balbir Rana, Rekha Negi	0	0	0	0	0
-t	Mero Lehanga	Inder Arya, Jyoti Rana	0	0	0	0	0
-t	Mohani	Deepa Nagarkoti, Darshan Farswan	0	0	0	0	0
-t	Motima	Darshan Farswan, Deepa Nagarkoti	0	0	0	0	0
-t	NAAKE KI NATHULI ME MADHULI	Gaurav Bisht	1	1	0	0	-0.25
-t	Naani Naani Seema	Lalit Mohan Joshi	0	0	0	0	0
-t	Nyoli	Sher Singh Mehar, Asha Negi	0	0	0	0	0
-t	O Babli Aeja	Balbir Rana, Kalpana Chauhan	1	0	0	0	0.03
-t	O Bana Paharo Ki Bana	Gaurav Bisht, Mamta Arya	2	1	0	0	-0.22
-t	O Didi Bhuli - Pahadi	Gaurav Bisht	0	0	0	0	0
-t	O Laali Ho	Pappu Karki	0	0	0	0	0
-t	O Rangili Dhana	Jitendra Tomkyal	1	1	0	0	-0.25
-t	Otuwa Belena	Vivek Nautiyal	0	0	0	0	0
-t	Paar Bhida	Lalit Mohan Joshi	0	0	0	0	0
-t	Pahadi Acappella 2 - Gothar Da Bakam Bam	Gunjan Dangwal, Ranjeet Singh, Vishal Sharma	0	0	0	0	0
-t	Pahado Ki Bana - Pahadi	Gaurav Bisht	0	0	0	0	0
-t	Pani Pilai De Panera	Jitendra Tomkyal	0	0	0	0	0
-t	Parani Mayadar Binduli	Lalit Mohan Joshi	0	0	0	0	0
-t	Pawana Chhori	Amit Badoni, Sangeeta Dhaundiyal	0	0	0	0	0
-t	Phool Khilala	Priyanka Meher, Deepak Meher	0	0	0	0	0
-t	Phulari (Time Machine 2)	Pandavaas	1	0	0	0	0.03
-t	Raadha	Pandavaas, Ishaan Dobhal	0	0	0	0	0
-t	Rajuli Bana - Pahadi	Balveer singh rana	0	0	0	0	0
-t	Rang Neeralo Teri Maya Ko	Jitendra Tomkyal	0	0	0	0	0
-t	Ranikhet Ki Baand Neeru	Lalit Mohan Joshi	0	0	0	0	0
-t	Ranikheta Ramdhola	Kishan Mahipal	0	0	0	0	0
-t	Rasima Chhori	Gajendra Rana, Meena Rana	3	0	0	0	0.21000001
-t	Rasima Chori	Spunky Mushroom, Subham Semwal, Monali Gusain	0	0	0	0	0
-t	Ratna Pyari	Gajendra Rana, Meena Rana	1	1	0	0	-0.25
-t	Raton Mein Chaand Tara	Lalit Mohan Joshi	0	0	0	0	0
-t	Reshami Bilauj Mein O Niroo	Balbir Rana, Kalpana Chauhan	0	0	0	0	0
-t	Sang Baithulo Gwala	Jitendra Tomkyal	0	0	0	0	0
-t	Sangeeta - Kumaoni	Jitendra Tomkyal	0	0	0	0	0
-t	Silgari Ka Pala Chala O Saali - Kumaoni	Jitendra Tomkyal	0	0	0	0	0
-t	Silgari Ko Pala Chala ( Feat. Papu Karki )	Papu Karki	0	0	0	0	0
-t	Tak taka tak kamla - pahari	Lalit Mohan Joshi	0	0	0	0	0
-t	Tankha Meri Kam	Jitendra Tomkyal	0	0	0	0	0
-t	Teri Rangyali Pichodi Kamu	Pappu Karki	0	0	0	0	0
-t	Theth Pahadi Vs Branded Noni	Inder Arya, Anisha Ranghar, Raj Tiger	0	0	0	0	0
-t	Tu Ae Ja Au Pahada - Pahadi	BK Samant	0	0	0	0	0
-t	Tu Syara Gaon Ki Neema	Unknown artist	0	0	0	0	0
-t	Udi Ja Panchhi	Fauji Lalit Mohan Joshi	1	0	0	0	0.03
-t	Yesi Judi Teri Meri	Late.Pappu Karki, Meena Rana	1	1	0	0	-0.25
-t	Yo Tali Tall	Jitendra Tomkyal	0	0	0	0	0
+t	01 - PITBULL - I know you want me (calle ocho) [Official video HD]	Unknown artist	0	0	0	0	0
+t	02 - Ishq Di Galli Vich - No Entry ｜ Salman Khan, Anil Kapoor & Bipasha ｜ Sonu Nigam,	Unknown artist	0	0	0	0	0
+t	03 - It's Magic - Koi Mil Gaya ｜ Hrithik Roshan & Preity Zinta ｜ Taz (Stereo Nation) 	Unknown artist	0	0	0	0	0
+t	04 - Dil Na Diya (Full Song) Krrish ｜ Hrithik Roshan, Priyanka Chopra ｜ Rajesh Roshan	Unknown artist	0	0	0	0	0
+t	05 - Nach Baliye	Unknown artist	0	0	0	0	0
+t	06 - Jeene Ke Hain Chaar Din - Video Song ｜ Mujhse Shaadi Karogi ｜ Sonu N, Sunidhi C 	Unknown artist	0	0	0	0	0
+t	07 - Just Chill Full HD Video Song ｜ Maine Pyaar Kyun Kiya ｜ Salmaan Khan ｜ Katreena 	Unknown artist	0	0	0	0	0
+t	08 - It's the Time to Disco	Unknown artist	0	0	0	0	0
+t	09 - Koi Kahe Kehta Rahe Full Song ｜ Dil Chahta Hai ｜ Aamir Khan, Akshaye Khanna, Sai	Unknown artist	0	0	0	0	0
+t	10 - Signal - Video Song ｜ Bhagam Bhag ｜ Pritam ｜ Remo Fernandes ｜ Govinda, Akshay Ku	Unknown artist	0	0	0	0	0
+t	11 - Ding Dong Dole (Full Song) Film - Kucch To Hai	Unknown artist	0	0	0	0	0
+t	12 - Main Toh Raste Se Ja Raha Tha ｜ Coolie No. 1 ｜ Govinda & Karisma Kapoor ｜ 90's B	Unknown artist	0	0	0	0	0
+t	13 - Mirchi	Unknown artist	0	0	0	0	0
+t	14 - PARTYNEXTDOOR, Drake - NOKIA	Unknown artist	0	0	0	0	0
+t	15 - Drake - Janice STFU	Unknown artist	2	0	0	0	0.06
+t	16 - Dhak Dhak	Unknown artist	0	0	0	0	0
+t	17 - Jatt Don’t Care - Sultaan X BIG Ghuman ( Official Music Video )	Unknown artist	0	0	0	0	0
+t	18 - Boom Shaka (Official Music Video) ｜ KR$NA ｜  Dhanda Nyoliwala	Unknown artist	0	0	0	0	0
+t	19 - Balma ｜ Official Music Video ｜ Bali ft Aastha Gill	Unknown artist	0	0	0	0	0
+t	20 - White Brown Black - Avvy Sra ｜ Karan Aujla ｜ Jaani ｜ Amanninder Singh ｜ Desi Mel	Unknown artist	0	0	0	0	0
+t	21 - KR$NA - Joota Japani ｜ Official Music Video	Unknown artist	0	0	0	0	0
+t	22 - Gangsta - Karan Aujla Ft. YG ｜ Rupan Bal ｜ Yeah Proof (Official Music Video)	Unknown artist	0	0	0	0	0
+t	23 - Saiyaan Ji ｜ (Official Music Video)：Yo Yo Honey Singh ｜ Neha Kakkar ｜ @YoYoHoney	Unknown artist	4	0	0	0	0.24000001
+t	24 - Laal Peeli Akhiyaan (Song) Shahid Kapoor,Kriti Sanon,Tanishk,Romy ｜ Teri Baaton 	Unknown artist	0	0	0	0	0
+t	25 - Yaad Aa Raha Hai (HD) ｜ Disco Dancer (1982) ｜ Bappi Lahiri ｜ Mithun Chakraborty 	Unknown artist	2	0	0	0	0.06
+t	26 - The Bilz & Kashif - Single ｜ Official Music Video HD	Unknown artist	2	1	0	0	-0.22
+t	27 - Where's The Party Tonight Full Video - KANK｜John, Abhishek, Preity｜Shaan, Vasund	Unknown artist	0	0	0	0	0
+t	28 - LMFAO - Party Rock Anthem (Audio) ft. Lauren Bennett, GoonRock	Unknown artist	0	0	0	0	0
+t	29 - Tu Meri Full Video ｜ BANG BANG! ｜ Hrithik Roshan & Katrina Kaif ｜ Vishal Shekhar	Unknown artist	0	0	0	0	0
+t	30 - Subha Hone Na De 8K Full Video Song ｜ Desi Boyz ｜ Akshay Kumar, John Abraham ｜ P	Unknown artist	0	0	0	0	0
+t	31 - Icona Pop - I Love It (feat. Charli XCX) [Official Music Video]	Unknown artist	0	0	0	0	0
+t	32 - Sadi Gali Lyrical Video Song ｜ Tanu Weds Manu ｜ Ft. Kangna Ranaut, R Madhavan	Unknown artist	0	0	0	0	0
+t	33 - Chaar Botal Vodka Full Song Feat. Yo Yo Honey Singh, Sunny Leone ｜ Ragini MMS 2	Unknown artist	0	0	0	0	0
+t	34 - Char Baj Gaye Lyric Video - F.A.L.T.U｜Jackky Bhagnani｜Hard Kaur｜Remo D'Souza｜Sac	Unknown artist	0	0	0	0	0
+t	35 - Party On My Mind	Unknown artist	1	0	0	0	0.03
+t	36 - 4K Remastered - Uff Teri Ada ｜ Deepika Padukone, Farhan Akhtar ｜ Karthik Calling	Unknown artist	0	0	0	0	0
+t	37 - Sunny Sunny ((Yaariyan)) Full Video Song I Himansh K ｜ Rakul Preet ｜ Yo Yo Honey	Unknown artist	0	0	0	0	0
+t	38 - Full Video： Hookah Bar ｜ Khiladi 786 ｜ Akshay Kumar & Asin ｜ Himesh Reshammiya	Unknown artist	0	0	0	0	0
+t	39 - Softly	Unknown artist	2	0	0	0	0.06
+t	40 - Kratex, Shreyas - Taambdi Chaamdi (Official Music Video)	Unknown artist	0	0	0	0	0
+t	41 - Ghafoor (Full Video) ｜ Ba＊＊＊ds Of Bollywood ｜ Aryan K ｜ Shashwat,Shilpa, Ujwal,T	Unknown artist	0	0	0	0	0
+t	42 - TiK ToK	Unknown artist	3	1	0	0	-0.19
+t	43 - Golmaal (Fun Unlimited) Title Track Lyrical Video Song ｜ Ajay Devgan, Arshad War	Unknown artist	0	0	0	0	0
+t	44 - Full Video： Pappu Can't Dance ｜ Jaane Tu Ya Jaane Na ｜ Imran Khan ｜ A.R. Rahman	Unknown artist	0	0	0	0	0
+t	45 - Dance Pe Chance ｜ Full Song ｜ Rab Ne Bana Di Jodi ｜ Shah Rukh Khan, Anushka ｜ Su	Unknown artist	0	0	0	0	0
+t	46 - Shut Up & Bounce	Unknown artist	0	0	0	0	0
+t	47 - Aal Izz Well – 3 Idiots ｜ Aamir Khan, Madhavan, Sharman J ｜ Sonu N, Swanand K & 	Unknown artist	0	0	0	0	0
+t	48 - Ra One： Chammak Challo 8K Video Song ｜ Shah Rukh Khan ｜ Kareena Kapoor Khan ｜ Vi	Unknown artist	0	0	0	0	0
+t	49 - Desi Girl Full Video - Dostana｜John,Abhishek,Priyanka｜Sunidhi Chauhan, Vishal Da	Unknown artist	0	0	0	0	0
+t	50 - Barbie Girl	Unknown artist	0	0	0	0	0
+t	51 - Aaj Ki Raat Full Video Song [4K 2160p &1080p] Don (2006)	Unknown artist	0	0	0	0	0
+t	52 - KR$NA - I Guess ｜ Official Music Video	Unknown artist	0	0	0	0	0
+t	53 - KR$NA ft. Seedhe Maut - Hola Amigo ｜ Official Music Video	Unknown artist	0	0	0	0	0
+t	54 - Seedhe Maut - Raat Ki Raani Live at Mood Indigo 2025 ｜ MI Studio ｜ IIT Bombay	Unknown artist	0	0	0	0	0
+t	55 - True Stories -  AP Dhillon ｜ Shinda Kahlon (Official Music Video)	Unknown artist	0	0	0	0	0
+t	56 - ＂Dil Dooba [Full Song]＂ Hindi Film Khakee Ft. Aishwarya Rai, Akshay Kumar	Unknown artist	2	0	0	0	0.06
+t	57 - DIVINE - You & I ｜ Kalyani Priyadarshan ｜ Prod. by Zzorawar ｜ Official Music Vid	Unknown artist	3	0	0	0	0.089999996
+t	58 - Sage	Unknown artist	0	0	0	0	0

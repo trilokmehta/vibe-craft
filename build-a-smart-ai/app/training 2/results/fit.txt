@@ -1,0 +1,41 @@
+== timeline (18 songs placed in the mix) ==
+   13.7-   82.0s  01 - AFTERAll - DDLJ (Transition Edit) ｜ bpm 131.0 x0.990  5B  E0.12  plays song 0-68s of 81s
+   13.7-   82.0s  32 - AFTERAll - DDLJ (Transition Edit) ｜ bpm 131.0 x0.990  5B  E0.12  plays song 0-68s of 81s
+  288.2-  318.8s  06 - DJ LYAN feat. Chip & Malkit Singh - bpm 124.0 x1.050  7A  E0.68  plays song 27-59s of 201s
+  331.2-  382.0s  07 - Tumse Milke Tech x Baglami (AFTERAl bpm 128.0 x1.030  12A  E0.27  plays song 27-80s of 146s
+  752.0-  778.2s  13 - AFTERAll - Kajra Re (Edit) ｜ AFTRHR bpm 130.0 x1.010  8A  E0.95  plays song 27-53s of 104s
+  883.0-  922.0s  15 - Aye Hip Hopper - AFTERAll ｜ Bolly A bpm 123.0 x1.070  10B  E0.61  plays song 0-42s of 152s
+ 1004.1- 1062.7s  17 - Dame un Grrr X Chammak Challo ｜ Ako bpm 134.0 x0.990  8B  E0.33  plays song 19-77s of 240s
+ 1221.4- 1255.4s  20 - Jaden Bojsen & David Guetta - Let's bpm 129.0 x1.050  11A  E0.59  plays song 121-157s of 188s
+ 1296.6- 1326.3s  21 - MARIA MARIA ｜ EXCLUSIVE REMIX PROMO bpm 130.0 x1.050  9B  E0.82  plays song 19-50s of 112s
+ 1346.9- 1423.0s  22 - Ghafoor X Parda ｜ Avneet Music ｜ Ma bpm 132.0 x1.010  11B  E0.56  plays song 9-85s of 166s
+ 1608.3- 1681.6s  26 - AFTERAll - Choli  ｜ AFTRHRS Session bpm 123.0 x1.090  9B  E0.35  plays song 44-124s of 149s
+ 1749.5- 1794.0s  28 - AFTERAll - Chokra Jawan ｜ AFTRHRS S bpm 120.0 x1.110  11B  E0.77  plays song 18-68s of 194s
+ 1862.3- 1900.6s  30 - Jaanam Samjha Karo - AFTERAll Remix bpm 123.0 x1.070  7A  E0.56  plays song 0-41s of 151s
+ 1901.2- 1917.1s  31 - O O JAANE JAANA  (Feroz Haamid & Mo bpm 122.0 x1.090  8B  E0.57  plays song 62-79s of 278s
+ 2235.5- 2264.7s  36 - Rush Mehta - Kem Che (Afro)         bpm 122.0 x1.070  2B  E0.63  plays song 27-59s of 160s
+ 2291.2- 2377.3s  37 - RUSH MEHTA x AFTERALL - Papu Can't  bpm 123.0 x1.090  2B  E0.70  plays song 0-94s of 120s
+ 2620.7- 2726.8s  41 - AFTERAll - Kaali Activa ｜ AFTRHRS S bpm 127.0 x1.050  12A  E0.41  plays song 10-121s of 140s
+ 2795.9- 2868.2s  43 - Stephanie Walhala - VIZANO Edit ＊Su bpm 127.0 x1.050  12A  E0.24  plays song 18-94s of 228s
+
+== habits ==
+seconds each song plays   p10/50/90: 26 / 45 / 76
+fraction of song played   p10/50/90: 0.16 / 0.27 / 0.80
+entry point in song (frac of length) p10/50/90: 0.00 / 0.08 / 0.25; entered at the opening: 5/18
+tempo shift applied to songs (%) p50/90/max: 5.0 / 9.0 / 11.0
+raw BPM step between consecutive songs (%) p50/90/max: 0.0 / 0.0 / 0.8
+effective BPM step after DJ shifting (%) p50/90/max: 0.0 / 0.0 / 1.0
+overlap length (s) p10/50/90: -0.6 / -0.6 / -0.6
+overlap length (beats) p10/50/90: -1.4 / -1.4 / -1.4
+Camelot number distance between consecutive songs (0..6): [1, 1, 0, 0, 0, 0, 0]
+
+== learned transition weights over 2 real transitions ==
+features: tempo-fit, key-fit, energy-closeness, dance-closeness
+learned (raw):       [-0.187, 3.660, 3.157, -0.312]
+learned (scaled to the engine's current total 5.7): [0.00, 3.06, 2.64, 0.00]
+existing engine weights: [2.2, 1.6, 1.4, 0.5]
+                        loglik   top1   top3   mean-rank(0=best, 0.5=random)
+random order            -2.221   0.13   0.39   0.50
+existing weights        -0.862   1.00   1.00   0.00
+learned weights         -0.198   1.00   1.00   0.00
+tempo-fit range check: songs shifted up to 11.0% in the mix
