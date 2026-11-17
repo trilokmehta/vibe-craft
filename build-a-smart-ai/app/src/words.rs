@@ -586,6 +586,52 @@ pub fn self_test(song: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// `--words-mix <title a> <title b>`: plans the A -> B mix with real words and prints it.
+pub fn mix_test(lib: &[crate::tracks::Track], qa: &str, qb: &str) {
+    crate::sep::ensure_model();
+    while matches!(crate::sep::model_state(), crate::sep::ModelState::Downloading(_) | crate::sep::ModelState::Missing) {
+        std::thread::sleep(std::time::Duration::from_millis(300));
+    }
+    let find = |q: &str| lib.iter().find(|t| t.title.to_lowercase().contains(&q.to_lowercase()));
+    let (Some(ta), Some(tb)) = (find(qa), find(qb)) else { return eprintln!("songs not found") };
+    let words = |t: &crate::tracks::Track| -> Option<Vec<Word>> {
+        let path = t.path.as_ref()?;
+        let pcm = t.audio();
+        let key = crate::sep::cache_key(path, pcm.len());
+        if let Some(w) = key.as_ref().and_then(|k| load_cached(k)) {
+            return Some(w);
+        }
+        let s = crate::sep::separate_file(path, &pcm, &AtomicU32::new(0), &std::sync::atomic::AtomicBool::new(false)).ok()?;
+        let w = transcribe_vocal(&s.data[0], 0).ok()?;
+        if let Some(k) = &key {
+            save(k, &w);
+        }
+        Some(w)
+    };
+    let (Some(wa), Some(wb)) = (words(ta), words(tb)) else { return eprintln!("no words") };
+    println!("A {} ({:.0} bpm): {} words   B {} ({:.0} bpm): {} words", ta.title, ta.a.bpm, wa.len(), tb.title, tb.a.bpm, wb.len());
+    let sr = crate::tracks::SR as f64;
+    let beat_a = 60.0 / ta.a.bpm as f64 * sr;
+    let bar_b = 4.0 * 60.0 / tb.a.bpm as f64 * sr;
+    let lo = tb.a.origin + tb.a.first_bar as f64 * bar_b;
+    let hi = (tb.a.origin + tb.a.last_bar as f64 * bar_b).min(0.55 * tb.samples() as f64) - 8.0 * bar_b;
+    // try every bar line of A in the first 100 s as a possible mix start
+    let mut shown = 0;
+    let bar_a = 4.0 * beat_a;
+    let mut k = (ta.a.first_bar + 8) as f64;
+    while k * bar_a < 100.0 * sr && shown < 6 {
+        let out = ta.a.origin + k * bar_a;
+        if let Some(sh) = find_shared_word(&wa, out, beat_a, &wb, tb.a.origin, bar_b, lo, hi, 16.0) {
+            println!("mix at {} in A: A ends on \"{}\" -> B enters at {} on {} \"{}\"", crate::dj::clock_str(out), sh.word_out, crate::dj::clock_str(sh.in_pos), if sh.exact { "same word" } else { "rhyme" }, sh.word_in);
+            shown += 1;
+        }
+        k += 4.0;
+    }
+    if shown == 0 {
+        println!("no shared word found in the first 100 s of A");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

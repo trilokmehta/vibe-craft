@@ -218,6 +218,20 @@ async fn main() {
             }
         }
     }
+    if let Some(qa) = arg("--words-mix") {
+        let qb = args.iter().position(|a| a == "--words-mix").and_then(|i| args.get(i + 2).cloned()).unwrap_or_default();
+        tracks::load_saved_music_dir();
+        let dir = tracks::CHOSEN_DIR.lock().unwrap().clone().or_else(tracks::find_default_music).unwrap_or_else(|| std::path::PathBuf::from("music"));
+        let prog = std::sync::Arc::new(Mutex::new(tracks::Progress::default()));
+        tracks::start_scan(dir, prog.clone());
+        while !prog.lock().unwrap().finished {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        let mut tv = prog.lock().unwrap().result.take().unwrap_or_default();
+        tracks::finalize(&mut tv);
+        words::mix_test(&tv, &qa, &qb);
+        std::process::exit(0);
+    }
     if args.iter().any(|a| a == "--layer-test") {
         let n: usize = arg("--layer-test").and_then(|s| s.parse().ok()).unwrap_or(2);
         let dir = tracks::find_default_music().unwrap_or_else(|| std::path::PathBuf::from("music"));
