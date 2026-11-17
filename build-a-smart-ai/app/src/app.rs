@@ -414,6 +414,12 @@ impl App {
         if calm {
             bi = bi.max(16);
         }
+        // Fit the length to the next song (ported from automix): a long quiet intro gets a long
+        // blend, a song that starts loud a short one. The intensity setting stays the upper limit.
+        let bi_cap = bi;
+        if !CLASSIC_AUTOMIX.load(std::sync::atomic::Ordering::Relaxed) && sec_next.is_none() {
+            bi = fit_blend_beats(intro_quiet, out_eff, bi, calm);
+        }
         if force || quick {
             bi = bi.min(8);
         }
@@ -566,6 +572,11 @@ impl App {
             let (n1, l1) = shift_cam(crate::tracks::camelot(tin.a.key, tin.a.minor), 0);
             let (n2, l2) = shift_cam((n1, l1), key_shift);
             format!("{}; {} is shifted {:+} semitone{} to fit the key ({}{} -> {}{})", why, tin.title, key_shift, if key_shift.abs() == 1 { "" } else { "s" }, n1, l1, n2, l2)
+        } else {
+            why
+        };
+        let why = if style != Style::Fade && beats != bi_cap && beats > 0 && !force && !quick {
+            format!("{}; blend of {} beats fits {}'s {:.0} s intro", why, beats, tin.title, intro_quiet)
         } else {
             why
         };

@@ -776,6 +776,25 @@ pub fn quiet_intro_secs(t: &Track, from: f64) -> f32 {
     0.0
 }
 
+/// Blend length (beats) that fits the next song: it should reach full power about when the
+/// blend ends. `intro_secs` is the quiet intro (see `quiet_intro_secs`), `bpm` the tempo both
+/// songs play at, `cap` the longest blend the intensity setting allows. A song that starts
+/// loud gets a short blend (8 beats); calm moods never go below 16. Ported from automix.
+pub fn fit_blend_beats(intro_secs: f32, bpm: f32, cap: u32, calm: bool) -> u32 {
+    let want = if intro_secs < 2.0 {
+        8
+    } else {
+        let beats = intro_secs * bpm.max(40.0) / 60.0;
+        (((beats / 4.0).round() as u32) * 4).clamp(8, 32)
+    };
+    let n = want.min(cap);
+    if calm {
+        n.max(16)
+    } else {
+        n
+    }
+}
+
 /// Onset envelope of `pcm` read from `start` at playback `rate`, on a 5 ms output-time grid.
 fn onset_track(pcm: &[f32], start: f64, rate: f64, steps: usize) -> Vec<f32> {
     let h = crate::tracks::SR as f64 / 200.0;
@@ -829,5 +848,25 @@ mod key_shift_tests {
         assert_eq!(shift_cam((8, 'A'), -1), (1, 'A'));
         assert_eq!(shift_cam((5, 'A'), 2), (7, 'A'));
         assert_eq!(shift_cam((5, 'A'), 0), (5, 'A'));
+    }
+}
+
+#[cfg(test)]
+mod fit_tests {
+    use super::*;
+
+    #[test]
+    fn blend_length_follows_the_intro_of_the_next_song() {
+        // starts loud: short
+        assert_eq!(fit_blend_beats(0.0, 120.0, 16, false), 8);
+        // 6 s intro at 120 BPM = 12 beats
+        assert_eq!(fit_blend_beats(6.0, 120.0, 32, false), 12);
+        // 14 s intro = 28 beats, but the intensity setting only allows 16
+        assert_eq!(fit_blend_beats(14.0, 120.0, 16, false), 16);
+        assert_eq!(fit_blend_beats(14.0, 120.0, 32, false), 28);
+        // calm moods never go below 16
+        assert_eq!(fit_blend_beats(0.0, 120.0, 16, true), 16);
+        // high intensity (cap 8) stays punchy
+        assert_eq!(fit_blend_beats(14.0, 120.0, 8, false), 8);
     }
 }
