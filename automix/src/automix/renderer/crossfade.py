@@ -21,6 +21,7 @@ from scipy.signal import butter, sosfiltfilt
 
 from ..planner.simple import TransitionPlan
 from .eq import BANDS, band_gains, equal_power_curves, split_bands, sweep_highpass, vocal_gates
+from .limiter import limit
 from .stretch import pitch_shift, stretch_to_map
 
 __all__ = ["RenderResult", "render_transition", "equal_power_curves"]
@@ -32,6 +33,7 @@ CUT_FADE = 0.01  # seconds
 ECHO_REPEATS = 8  # one per beat = 2 bars
 ECHO_FEEDBACK = 0.65  # each repeat is this much quieter than the one before
 ECHO_LOW_CUT_HZ = 250.0  # echoes carry no bass, so they do not fight B's kick
+LIMIT_CEILING = 0.98  # about -0.2 dBFS
 FILTER_FADE_PART = 0.25  # A fades out during the last quarter of a filter transition
 
 
@@ -223,7 +225,7 @@ def render_transition(
     vocals_a / vocals_b: optional vocal stems of the two tracks, same shape
     and sample rate as the tracks. Needed for the vocal swap.
 
-    normalize: turn the whole result down when it would clip. Playlist mode
+    normalize: limit the result when it would clip. Playlist mode
     switches this off and uses one limiter for the whole set.
     """
     sr = sr_a
@@ -263,13 +265,14 @@ def render_transition(
         )
     engine = engine if engine != "none" else pitch_engine
 
-    # Two songs added together can go over the digital maximum. Turn the
-    # whole mix down if needed (limiter comes later).
+    # Two songs added together can go over the digital maximum. A limiter turns
+    # the mix down only around the peaks, so the rest keeps its loudness.
+    # master_gain_db is the deepest reduction it made (0 when nothing clipped).
     peak = float(np.max(np.abs(out))) if out.size else 0.0
     master_gain_db = 0.0
-    if normalize and peak > 0.98:
-        master_gain_db = float(20.0 * np.log10(0.98 / peak))
-        out = out * (0.98 / peak)
+    if normalize and peak > LIMIT_CEILING:
+        out = limit(out, sr, LIMIT_CEILING)
+        master_gain_db = float(20.0 * np.log10(LIMIT_CEILING / peak))
 
     return RenderResult(
         audio=out.astype(np.float32),

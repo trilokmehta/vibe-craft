@@ -135,3 +135,13 @@ def test_stretch_follows_time_map():
         found = (int((want - 0.1) * SR) + int(np.argmax(window))) / SR
         # The fallback stretch smears a click over one analysis window (93 ms here).
         assert found == pytest.approx(want, abs=0.06)
+
+
+def test_two_song_mix_is_limited_not_turned_down(tmp_path):
+    a, b = tmp_path / "a.wav", tmp_path / "b.wav"
+    sf.write(str(a), np.clip(make_track(120, 32) * 1.2, -1, 1), SR)
+    sf.write(str(b), np.clip(make_track(126, 32) * 1.2, -1, 1), SR)
+    _, result = mix_two_tracks(a, b, tmp_path / "o.wav", cache_dir=None)
+    assert np.max(np.abs(result.audio)) <= 0.981
+    # the loud body of A is not turned down for the sake of the overlap
+    assert np.max(np.abs(result.audio[:, 20 * result.sr : 28 * result.sr])) > 0.9
