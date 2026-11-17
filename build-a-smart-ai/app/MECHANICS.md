@@ -12,6 +12,7 @@ No original product exists to measure; every value is a design choice from the r
 | Mixing | EQ crossover 250 Hz / 2.5 kHz, bass swap at 50% of blend | estimated |
 | Mixing | echo = dotted eighth, feedback 0.5, ping-pong | estimated |
 | Mixing | tempo returns to normal after a mix at 0.4% per second | estimated |
+| Mixing | Blend / Filter+echo glide the tempo during the mix (outgoing deck ramps to the tempo where the next song plays unstretched, both follow bar by bar), ported from automix | automix |
 | Queue | keeps 4 tracks, avoids last 8 played, penalises same artist | estimated |
 | Mood energy targets | Chill .30, Party .85, Workout .80, Focus .42, Romantic .25, Discovery .55 | estimated |
 | Controls | Space pause, Left/Right prev/next, M mix now, D auto DJ, 1-4 tabs, Up/Down volume, L like | estimated |

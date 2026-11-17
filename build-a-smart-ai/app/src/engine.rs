@@ -61,6 +61,10 @@ pub struct Trans {
     pub elapsed: u32,
     pub style: Style,
     pub script: Option<Script>,
+    /// Tempo ramp (rate of the outgoing deck at the start, at the end). Both decks glide
+    /// bar by bar so the incoming song ends exactly at its own tempo (rate 1.0) and does
+    /// not have to drift back afterwards.
+    pub ramp: Option<(f64, f64)>,
 }
 
 #[derive(Clone, Copy)]
@@ -996,6 +1000,15 @@ impl Mixer {
     /// Phase-locked loop, run every 128 frames: holds each locked deck on the other
     /// deck's beat grid (plus its wanted offset) with a small tempo bend (max 4%, pitch stays).
     fn sync_tick(&mut self) {
+        if let Some(t) = self.trans {
+            if let Some((r0, r1)) = t.ramp {
+                let x = (t.elapsed as f64 / t.total.max(1) as f64).clamp(0.0, 1.0);
+                let d = &mut self.decks[t.out];
+                d.rate = r0 + (r1 - r0) * x;
+                d.target_rate = d.rate;
+                d.ease = false;
+            }
+        }
         for s in 0..2 {
             let in_mix = self.trans.map(|t| t.inn == s).unwrap_or(false);
             if self.decks[s].lock_auto && !in_mix {
@@ -1008,7 +1021,10 @@ impl Mixer {
             }
             let Some((rate, err, unit)) = self.phase_target(s, false) else { continue };
             // Manual lock follows the other deck's tempo; in a mix the DJ's planned rate holds.
-            let base = if manual && !auto { rate } else { self.decks[s].lock_base };
+            // During a tempo ramp the outgoing deck's speed keeps changing, so the incoming
+            // deck follows its tempo live instead of holding the planned one.
+            let ramping = self.trans.map(|t| t.inn == s && t.ramp.is_some()).unwrap_or(false);
+            let base = if (manual && !auto) || ramping { rate } else { self.decks[s].lock_base };
             let mut e = err - self.decks[s].phase_goal;
             e -= (e / unit).round() * unit;
             // Seconds of offset in the song's own time; settles in about a second.
@@ -1067,7 +1083,7 @@ impl Mixer {
             let spb = SR as f64 * 60.0 / d.bpm.max(40.0) as f64;
             self.roll = Some((out, d.pos, spb, 0.0));
         }
-        self.trans = Some(Trans { out, inn, total: (p.dur_secs * self.sr).max(1.0) as u32, elapsed: 0, style: p.style, script: p.script });
+        self.trans = Some(Trans { out, inn, total: (p.dur_secs * self.sr).max(1.0) as u32, elapsed: 0, style: p.style, script: p.script, ramp: None });
         // A mix hands over control: no manual lock on either deck from here on.
         self.decks[out].sync = false;
         self.decks[inn].sync = false;
@@ -1097,9 +1113,33 @@ impl Mixer {
                 d.lock_auto = true;
                 d.lock_base = rate;
                 d.phase_goal = err;
+                // Beat-matched blend: glide the tempo so B arrives at its own speed.
+                if matches!(p.style, Style::Blend | Style::FilterEcho) {
+                    self.plan_ramp(out, inn, rate);
+                }
             }
         }
         self.pending = None;
+    }
+
+    /// Sets the tempo ramp of the running transition: the outgoing deck glides to the tempo
+    /// at which the incoming song plays unstretched. `rate_in` is the incoming rate now.
+    fn plan_ramp(&mut self, out: usize, inn: usize, rate_in: f64) {
+        let (bo, ro) = (self.decks[out].bpm as f64, self.decks[out].rate);
+        let em = bo * ro;
+        // beat multiple (half / double time) that phase_target matched
+        let mult = rate_in * self.decks[inn].bpm as f64 / em.max(1.0);
+        if bo < 30.0 || mult <= 0.0 {
+            return;
+        }
+        let r1 = self.decks[inn].bpm as f64 / mult / bo;
+        // Same limit as beat matching: never ramp the outgoing song further than ~16 %.
+        if (r1 / ro).ln().abs() > 0.16 || (r1 / ro - 1.0).abs() < 0.002 {
+            return;
+        }
+        if let Some(t) = self.trans.as_mut() {
+            t.ramp = Some((ro, r1));
+        }
     }
 
     fn frame(&mut self) -> (f32, f32) {
@@ -1458,6 +1498,29 @@ mod routing_tests {
         m.render_virtual(6.0);
         let end = m.phase_ms(1).unwrap();
         assert!((end - start).abs() < 15.0, "drifted {} -> {} ms", start, end);
+    }
+
+    #[test]
+    fn blend_ramps_the_tempo_so_the_next_song_ends_at_its_own_speed() {
+        let mut m = mixer();
+        m.decks[0].bpm = 124.0;
+        m.decks[0].rate = 1.0;
+        m.decks[0].playing = true;
+        m.decks[0].pos = 40_000.0;
+        m.decks[1].bpm = 120.0;
+        // B is first played 124/120 faster to sit on A's tempo
+        m.pending = Some(Pending { deck_in: 1, trigger: 0.0, start_pos: 10_000.0, in_rate: 124.0 / 120.0, dur_secs: 8.0, style: Style::Blend, out_bpm_eff: 124.0, script: None });
+        m.render_virtual(0.2);
+        let t = m.trans.expect("transition running");
+        let (r0, r1) = t.ramp.expect("tempo ramp planned");
+        assert!((r0 - 1.0).abs() < 1e-6 && (r1 - 120.0 / 124.0).abs() < 1e-6, "ramp {} -> {}", r0, r1);
+        let start = m.phase_ms(1).unwrap();
+        m.render_virtual(7.4);
+        // late in the mix both decks are close to B's own tempo and still on the same beat
+        assert!((m.decks[1].eff_bpm() - 120.0).abs() < 0.6, "B at {} BPM", m.decks[1].eff_bpm());
+        assert!((m.decks[0].eff_bpm() - 120.0).abs() < 0.6, "A at {} BPM", m.decks[0].eff_bpm());
+        let end = m.phase_ms(1).unwrap();
+        assert!((end - start).abs() < 20.0, "drifted {} -> {} ms", start, end);
     }
 }
 
