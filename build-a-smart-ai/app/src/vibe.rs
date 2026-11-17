@@ -283,13 +283,51 @@ pub fn self_test(lib: &[crate::tracks::Track], n: usize) {
 
 // ---- Phase 3: staged, layer-by-layer transitions -------------------------
 
+/// Where in a blend (0..1) the singer of the playing song finishes the vocal phrase he or she is
+/// singing at the blend start: the first bar without vocals. 0.0 when nobody sings there,
+/// 1.0 when the singing goes on for the whole blend.
+pub fn vocal_run_end(pa: &Profile, out_pos: f64, t_bars: f32) -> f32 {
+    let t = t_bars.max(1.0);
+    let i0 = pa.bar_at(out_pos);
+    let mut seen = false;
+    for k in 0..(t.ceil() as isize) {
+        let idx = i0 + k;
+        let on = idx >= 0 && pa.on.get(idx as usize).map(|b| b[V]).unwrap_or(false);
+        if on {
+            seen = true;
+        } else if seen {
+            return (k as f32 / t).min(1.0);
+        }
+    }
+    if seen {
+        1.0
+    } else {
+        0.0
+    }
+}
+
+/// Slow, complete vocal hand-over: the playing song's singer is not cut off mid-phrase (the fade
+/// starts when the phrase ends, `vend` from `vocal_run_end`) and fades over at least `min_fade`
+/// (fraction of the blend, about 2 bars); the next singer comes in while that fade is half way,
+/// as slowly. With `overlap` false (clashing notes) the next singer waits until the old one is gone.
+fn slow_vocals(sc: &mut crate::engine::Script, vend: f32, min_fade: f32, overlap: bool) {
+    let w_out = (sc[0][V].1 - sc[0][V].0).max(min_fade).min(0.6);
+    let start = if vend >= 1.0 { sc[0][V].0.max(0.45) } else if vend <= 0.0 { sc[0][V].0 } else { vend };
+    let start = start.min(1.0 - w_out).max(0.0);
+    sc[0][V] = (start, start + w_out);
+    let w_in = (sc[1][V].1 - sc[1][V].0).max(min_fade).min(0.6);
+    let s_in = if overlap { start + 0.5 * w_out } else { start + w_out };
+    let s_in = s_in.min(1.0 - w_in).max(0.0);
+    sc[1][V] = (s_in, s_in + w_in);
+}
+
 /// "Layer build" script (an option in the settings): the next song enters in stages and the
 /// playing song leaves in the reverse order.
 ///   next song:  music bed (5-8 s on its own) -> melody (3-5 s) -> drums + bass -> vocals
 ///   this song:  vocals leave first -> drums + bass -> melody -> music bed last
 /// `secs` is the length of the blend. Windows are fractions of the blend. Two basslines never
 /// play together and the two drum kits overlap only for a moment around the swap.
-pub fn script_build(secs: f32) -> (crate::engine::Script, String) {
+pub fn script_build(secs: f32, vend: f32) -> (crate::engine::Script, String) {
     let t = secs.max(8.0);
     let l = ((0.30 * t).clamp(5.0, 8.0) / t).min(0.38); // music alone
     let m = ((0.20 * t).clamp(3.0, 5.0) / t).min(0.24); // melody joins
@@ -310,6 +348,12 @@ pub fn script_build(secs: f32) -> (crate::engine::Script, String) {
     sc[0][DR] = win(sw - 0.02, sw + 0.06);
     sc[0][ME] = win(sw + 0.04, (sw + 0.24).min(0.95));
     sc[0][MU] = win(sw + 0.12, 1.0);
+    // vocals: the singer finishes the phrase, then both voices cross over slowly (about 4 s)
+    slow_vocals(&mut sc, vend, (4.0 / t).clamp(0.12, 0.35), true);
+    // the next singer still comes last: after the drums and bass are in
+    let (va, vb) = sc[1][V];
+    let va2 = va.max(sw + sh).min(1.0 - (vb - va));
+    sc[1][V] = (va2, va2 + (vb - va));
     let why = format!(
         "layer build: music {:.0} s -> melody {:.0} s -> drums + bass -> vocals; the playing song leaves vocals first, music last",
         l * t,
@@ -408,6 +452,8 @@ pub fn script(pa: &Profile, out_pos: f64, pb: &Profile, in_pos: f64, t_bars: f32
             }
         }
     }
+    // Let the singer finish the phrase, then cross over slowly (>= 2 bars).
+    slow_vocals(&mut sc, vocal_run_end(pa, out_pos, t_bars), (2.0 / t).clamp(0.1, 0.35), !clash);
     steps.push((sc[1][V].0, vlabel));
 
     // Safeguard: never let the outgoing song leave before the incoming one is
@@ -639,7 +685,7 @@ mod build_tests {
 
     #[test]
     fn layers_enter_in_stages_and_leave_in_reverse() {
-        let (sc, why) = script_build(16.0);
+        let (sc, why) = script_build(16.0, 0.3);
         let i = &sc[1];
         let o = &sc[0];
         // next song: music, then melody, then drums and bass, then vocals
@@ -662,12 +708,46 @@ mod build_tests {
     #[test]
     fn short_blends_still_make_a_valid_script() {
         for secs in [4.0f32, 8.0, 12.0, 32.0] {
-            let (sc, _) = script_build(secs);
+            let (sc, _) = script_build(secs, 0.2);
             for l in 0..NL {
                 for s in 0..2 {
                     assert!(sc[s][l].1 > sc[s][l].0 && sc[s][l].1 <= 1.0);
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod vocal_tests {
+    use super::*;
+
+    fn singer(on_bars: std::ops::Range<usize>, bars: usize) -> Profile {
+        let mut on = vec![[false; NL]; bars];
+        for b in on_bars {
+            on[b][V] = true;
+        }
+        Profile { origin: 0.0, bar: 1000.0, lv: vec![[0.5; NL]; bars], on, chroma: vec![[1.0; 12]; bars] }
+    }
+
+    #[test]
+    fn vocal_run_end_finds_the_end_of_the_phrase() {
+        let p = singer(0..3, 32);
+        assert!((vocal_run_end(&p, 0.0, 8.0) - 3.0 / 8.0).abs() < 1e-6);
+        assert_eq!(vocal_run_end(&singer(4..8, 32), 0.0, 4.0), 0.0); // nobody sings at the start
+        assert_eq!(vocal_run_end(&singer(0..32, 32), 0.0, 8.0), 1.0); // sings throughout
+    }
+
+    #[test]
+    fn the_singer_finishes_and_the_crossfade_is_slow() {
+        let pa = singer(0..3, 64);
+        let pb = singer(0..64, 64);
+        let (sc, why) = script(&pa, 0.0, &pb, 0.0, 8.0, true);
+        let (o, i) = (sc[0][V], sc[1][V]);
+        // the fade of the old singer starts only after the phrase (3 of 8 bars) is complete
+        assert!(o.0 >= 3.0 / 8.0 - 1e-4, "{} {:?}", why, o);
+        // and both fades last at least 2 bars (0.25 of the blend)
+        assert!(o.1 - o.0 >= 0.25 - 1e-4 && i.1 - i.0 >= 0.25 - 1e-4, "{:?} {:?}", o, i);
+        assert!(i.1 <= 1.0 + 1e-6);
     }
 }

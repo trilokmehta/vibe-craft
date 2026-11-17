@@ -526,8 +526,9 @@ impl App {
             let pa = self.profiles.iter().find(|p| p.0 == cur).map(|p| p.1.clone());
             let pb = self.profiles.iter().find(|p| p.0 == nt).map(|p| p.1.clone());
             match (pa, pb, style) {
-                (Some(_), Some(_), Style::Blend | Style::FilterEcho) if build_on => {
-                    let (sc, desc) = crate::vibe::script_build(dur);
+                (Some(pa_out), Some(_), Style::Blend | Style::FilterEcho) if build_on => {
+                    let vend = crate::vibe::vocal_run_end(&pa_out, trigger, beats as f32 / 4.0);
+                    let (sc, desc) = crate::vibe::script_build(dur, vend);
                     (Some(sc), format!("{}; {}", why, desc))
                 }
                 (Some(pa), Some(pb), Style::Blend | Style::FilterEcho | Style::Fade) if !classic && !force => {
