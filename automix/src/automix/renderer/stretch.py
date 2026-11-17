@@ -12,7 +12,9 @@ Rubber Band for real use.
 
 from __future__ import annotations
 
+import os
 import shutil
+from pathlib import Path
 
 import librosa
 import numpy as np
@@ -21,7 +23,13 @@ N_FFT = 2048
 HOP = 512
 
 
+# A copy of rubberband.exe in automix/tools/rubberband is found without touching PATH.
+_LOCAL_RUBBERBAND = Path(__file__).resolve().parents[3] / "tools" / "rubberband"
+
+
 def has_rubberband() -> bool:
+    if shutil.which("rubberband") is None and _LOCAL_RUBBERBAND.is_dir():
+        os.environ["PATH"] = str(_LOCAL_RUBBERBAND) + os.pathsep + os.environ.get("PATH", "")
     return shutil.which("rubberband") is not None
 
 
