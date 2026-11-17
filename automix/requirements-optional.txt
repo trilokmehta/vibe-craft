@@ -1,0 +1,11 @@
+# Optional: better beat and downbeat tracking with "beat_this" (MIT, CPJKU, ISMIR 2024).
+# It needs PyTorch, which is a large download (~200 MB for the CPU build).
+#
+# Install in this order (PowerShell, inside the virtual environment):
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+#   pip install -r requirements-optional.txt
+#
+# The analyzer uses beat_this automatically when it is installed,
+# and falls back to librosa when it is not.
+https://github.com/CPJKU/beat_this/archive/main.zip
+matplotlib>=3.7       # PSF-style - only for --plot debug pictures

@@ -1,0 +1,9 @@
+# Core libraries. All of these have ready-made Windows wheels for Python 3.11.
+# Install with:  pip install -r requirements.txt
+numpy>=1.24          # BSD
+scipy>=1.10          # BSD
+librosa>=0.10.2      # ISC  - audio loading, beat tracking fallback, chroma
+soundfile>=0.12.1    # BSD  - reads MP3/WAV/FLAC (bundles libsndfile, LGPL)
+pyloudnorm>=0.1.1    # MIT  - LUFS loudness (ITU-R BS.1770)
+pyrubberband>=0.3.0  # ISC  - wrapper around the Rubber Band CLI (used from Milestone 3)
+pytest>=7            # MIT  - only for running the tests
