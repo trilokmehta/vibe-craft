@@ -28,4 +28,4 @@ No original product exists to measure; every value is a design choice from the r
 | BPM step after shifting | ~1% | tempo weight raised 2.2 -> 3.0 |
 | Camelot distance | 0-1 almost always | key weight 1.6 -> 0.9 (tempo is the main cue; key clashes are hidden with FX) |
 | Groove similarity | | dance weight 0.5 -> 0.7 |
-| Transition tricks | short punchy mixes, loops, echo / reverb throws | new styles: Loop roll (1 bar -> 1/8 then drop on the one), Reverb wash; party sets rotate Blend / Filter+Echo / Loop roll, key clashes alternate Echo out / Reverb wash |
+| Transition tricks | short punchy mixes, loops, echo / reverb throws | new styles: Loop roll (1 bar -> 1/8 then drop on the one), Reverb wash; party sets rotate Blend / Filter+Echo (Loop roll is switched off in `app.rs`, `LOOP_ROLL_AUTO`, because it sounded like a stuck loop), key clashes alternate Echo out / Reverb wash |

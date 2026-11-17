@@ -8,6 +8,11 @@ use macroquad::prelude::*;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
+/// The DJ may pick the Loop roll (the playing song loops one bar, repeating faster, then the next
+/// song drops in) on its own. Switched off: it sounded like a stuck loop in the middle of a blend.
+/// The style itself is still in the engine.
+const LOOP_ROLL_AUTO: bool = false;
+
 pub fn hsv(h: f32, s: f32, v: f32) -> Color {
     let h = h.rem_euclid(1.0) * 6.0;
     let i = h.floor();
@@ -436,7 +441,7 @@ impl App {
         } else {
             // party sets: pick the trick from the energy move, vary the rest (as in the training mixes)
             let rise = tin.energy - ta.energy;
-            if rise > 0.12 && !quick {
+            if LOOP_ROLL_AUTO && rise > 0.12 && !quick {
                 (Style::LoopRoll, 16, r) // building up: roll the loop, drop into the bigger song
             } else if rise < -0.12 {
                 (Style::ReverbWash, 8, r) // coming down: let the old song wash away
