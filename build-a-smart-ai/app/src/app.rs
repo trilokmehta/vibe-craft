@@ -353,10 +353,10 @@ impl App {
         let lib = self.lib.clone();
         let nt = self.queue[0].track;
         let mixer = self.mixer.clone();
-        let (act, pos, rate, len, busy, cur, manual) = {
+        let (act, pos, rate, len, busy, cur, manual, cur_shift) = {
             let m = mixer.lock().unwrap();
             let a = m.active;
-            (a, m.decks[a].pos, m.decks[a].rate, m.decks[a].len(), m.trans.is_some(), m.decks[a].track, m.manual)
+            (a, m.decks[a].pos, m.decks[a].rate, m.decks[a].len(), m.trans.is_some(), m.decks[a].track, m.manual, m.decks[a].key_shift())
         };
         if busy || manual {
             return;
@@ -373,7 +373,13 @@ impl App {
         // 1.3: below this the beat grid is usually wrong (measured on a real folk library).
         let grid_ok = ta.a.beat_conf >= 1.3 && tin.a.beat_conf >= 1.3;
         let matched = auto && grid_ok && ts > 0.0;
-        let ks = key_score(ta, tin);
+        // Key shift (ported from automix): move the next song up or down by up to 2 semitones
+        // when that turns a clash into a match. It keeps that pitch for the rest of the song.
+        let (key_shift, ks) = if CLASSIC_AUTOMIX.load(std::sync::atomic::Ordering::Relaxed) || !self.set.auto {
+            (0, key_score_shifted(ta, cur_shift, tin, 0))
+        } else {
+            best_key_shift(ta, cur_shift, tin)
+        };
         let sr = SR as f64;
         let spb = sr * 60.0 / ta.a.bpm as f64;
         let spb_in = sr * 60.0 / tin.a.bpm as f64;
@@ -543,6 +549,7 @@ impl App {
                 d.loop_on = false;
                 d.cues = [None; 4];
                 d.ease = false;
+                d.set_key_shift(key_shift);
             }
             // Same song re-planned: keep its layers and layer levels (no flicker).
             // A new song takes its layers straight from the cache when they are ready.
@@ -555,6 +562,13 @@ impl App {
             m.grid_lock = sec_next.is_some();
             m.pending = Some(Pending { deck_in: inn, trigger, start_pos: in_pos, in_rate, dur_secs: dur, style, out_bpm_eff: out_eff, script });
         }
+        let why = if key_shift != 0 {
+            let (n1, l1) = shift_cam(crate::tracks::camelot(tin.a.key, tin.a.minor), 0);
+            let (n2, l2) = shift_cam((n1, l1), key_shift);
+            format!("{}; {} is shifted {:+} semitone{} to fit the key ({}{} -> {}{})", why, tin.title, key_shift, if key_shift.abs() == 1 { "" } else { "s" }, n1, l1, n2, l2)
+        } else {
+            why
+        };
         let why = if intro_quiet >= 2.0 { format!("{}; {} has a {:.0} s quiet intro", why, tin.title, intro_quiet) } else { why };
         self.armed = Some(Armed { track: nt, trigger, style, beats, in_rate, out_eff, ks, matched, l_trk, cur, in_pos, why, script });
     }

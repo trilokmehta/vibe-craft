@@ -346,6 +346,10 @@ pub struct Deck {
     pub pos: f64,
     pub rate: f64,
     pub target_rate: f64,
+    /// Key shift for the whole song: playback pitch ratio (2^(semitones/12)) and the song
+    /// it belongs to. The tempo is not affected. See `pitch_now`.
+    pub pitch: f64,
+    pub pitch_for: Option<usize>,
     pub playing: bool,
     pub norm: f32,
     pub bpm: f32,
@@ -413,7 +417,8 @@ impl Deck {
             return None;
         }
         let g = self.sgc;
-        let want = (self.rate - 1.0).abs() > 0.0003;
+        let pitch = self.pitch_now();
+        let want = (self.rate - 1.0).abs() > 0.0003 || (pitch - 1.0).abs() > 1e-6;
         if !want {
             self.stretching = false;
             self.need_reset = true;
@@ -434,8 +439,8 @@ impl Deck {
             self.stretching = true;
             self.need_reset = false;
             self.st.reset(self.pos);
-            self.s0 = self.st.next(p, stems, self.rate);
-            self.s1 = self.st.next(p, stems, self.rate);
+            self.s0 = self.st.next(p, stems, self.rate / pitch);
+            self.s1 = self.st.next(p, stems, self.rate / pitch);
             self.frac = 0.0;
         }
         let f = self.frac as f32;
@@ -447,11 +452,13 @@ impl Deck {
         } else {
             v = self.s0[0] + (self.s1[0] - self.s0[0]) * f;
         }
-        self.frac += SR as f64 / out_sr as f64;
+        // Reading the stretched audio faster (slower) by `pitch` raises (lowers) the pitch;
+        // the stretcher runs at rate / pitch so the tempo stays at `rate`.
+        self.frac += SR as f64 / out_sr as f64 * pitch;
         while self.frac >= 1.0 {
             self.frac -= 1.0;
             self.s0 = self.s1;
-            self.s1 = self.st.next(p, stems, self.rate);
+            self.s1 = self.st.next(p, stems, self.rate / pitch);
         }
         Some(v)
     }
@@ -463,6 +470,8 @@ impl Deck {
             pos: 0.0,
             rate: 1.0,
             target_rate: 1.0,
+            pitch: 1.0,
+            pitch_for: None,
             playing: false,
             norm: 1.0,
             bpm: 120.0,
@@ -503,6 +512,24 @@ impl Deck {
             a1: 0.03,
             a2: 0.3,
         }
+    }
+    /// Pitch ratio in use: 1.0 unless the song loaded in this deck was key-shifted.
+    pub fn pitch_now(&self) -> f64 {
+        if self.track.is_some() && self.track == self.pitch_for {
+            self.pitch
+        } else {
+            1.0
+        }
+    }
+    /// Key-shift the song in this deck by `semitones` (0 clears it).
+    pub fn set_key_shift(&mut self, semitones: i32) {
+        self.pitch = 2f64.powf(semitones as f64 / 12.0);
+        self.pitch_for = if semitones == 0 { None } else { self.track };
+        self.need_reset = true;
+    }
+    /// Semitones the song in this deck is shifted by.
+    pub fn key_shift(&self) -> i32 {
+        (12.0 * self.pitch_now().log2()).round() as i32
     }
     pub fn len(&self) -> f64 {
         self.pcm.as_ref().map(|p| p.len() as f64).unwrap_or(0.0)
@@ -1498,6 +1525,49 @@ mod routing_tests {
         m.render_virtual(6.0);
         let end = m.phase_ms(1).unwrap();
         assert!((end - start).abs() < 15.0, "drifted {} -> {} ms", start, end);
+    }
+
+    /// Frequency (Hz) of the left channel of one second of output, from zero crossings.
+    fn pitch_of(m: &mut Mixer) -> f64 {
+        m.render_virtual(0.3); // settle
+        let mut out = vec![0.0f32; 2 * 48000];
+        m.render(&mut out, 2);
+        let mut up = 0;
+        for i in 1..48000 {
+            if out[2 * (i - 1)] <= 0.0 && out[2 * i] > 0.0 {
+                up += 1;
+            }
+        }
+        up as f64
+    }
+
+    #[test]
+    fn key_shift_moves_the_pitch_but_not_the_tempo() {
+        for (semi, rate) in [(0, 1.0), (2, 1.0), (-2, 1.0), (1, 1.04)] {
+            let mut m = mixer();
+            let hz = 440.0;
+            m.decks[0].pcm = Some(Arc::new((0..SR as usize * 20).map(|i| (2.0 * PI * hz * i as f32 / SR as f32).sin() * 0.5).collect()));
+            m.decks[0].playing = true;
+            m.decks[0].pos = 20_000.0;
+            m.decks[0].rate = rate;
+            m.decks[0].set_key_shift(semi);
+            let p0 = m.decks[0].pos;
+            let f = pitch_of(&mut m);
+            // after the 0.3 s settle and the 1 s read the song moved 1.3 s * rate
+            let moved = (m.decks[0].pos - p0) / SR as f64;
+            let want = hz as f64 * rate * 2f64.powf(semi as f64 / 12.0) / rate;
+            assert!((f - want).abs() < want * 0.02, "shift {} rate {}: {} Hz, wanted {}", semi, rate, f, want);
+            assert!((moved - 1.3 * rate).abs() < 0.03, "shift {} rate {}: moved {} s", semi, rate, moved);
+        }
+    }
+
+    #[test]
+    fn key_shift_belongs_to_one_song() {
+        let mut m = mixer();
+        m.decks[0].set_key_shift(2);
+        assert_eq!(m.decks[0].key_shift(), 2);
+        m.decks[0].track = Some(7); // another song loaded in the deck
+        assert_eq!(m.decks[0].key_shift(), 0);
     }
 
     #[test]

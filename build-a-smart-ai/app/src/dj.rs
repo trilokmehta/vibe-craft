@@ -204,8 +204,18 @@ impl Profile {
 }
 
 pub fn key_score(a: &Track, b: &Track) -> f32 {
-    let (na, la) = camelot(a.a.key, a.a.minor);
-    let (nb, lb) = camelot(b.a.key, b.a.minor);
+    key_score_shifted(a, 0, b, 0)
+}
+
+/// Camelot code after pitch-shifting by `semis` semitones (one semitone = 7 steps round the wheel).
+pub fn shift_cam(c: (i32, char), semis: i32) -> (i32, char) {
+    ((c.0 - 1 + 7 * semis).rem_euclid(12) + 1, c.1)
+}
+
+/// Key compatibility of B after A, each possibly key-shifted (in semitones).
+pub fn key_score_shifted(a: &Track, shift_a: i32, b: &Track, shift_b: i32) -> f32 {
+    let (na, la) = shift_cam(camelot(a.a.key, a.a.minor), shift_a);
+    let (nb, lb) = shift_cam(camelot(b.a.key, b.a.minor), shift_b);
     let d = {
         let x = (na - nb).abs();
         x.min(12 - x)
@@ -229,6 +239,37 @@ pub fn key_score(a: &Track, b: &Track) -> f32 {
     } else {
         s
     }
+}
+
+/// Biggest key shift of the next song (voices sound unnatural beyond this).
+pub const MAX_KEY_SHIFT: i32 = 2;
+/// Each semitone of shift costs this much score, so a song is shifted only when it clearly helps.
+const KEY_SHIFT_PENALTY: f32 = 0.05;
+const KEY_SHIFT_MIN_GAIN: f32 = 0.2;
+/// Both key detections must be at least this sure before a song is shifted (a wrong key would detune it).
+const KEY_SHIFT_MIN_CONF: f32 = 0.05;
+
+/// Key shift (semitones, -2..2) for `b` so it follows `a` (already shifted by `shift_a`) better,
+/// and the key score after the shift. 0 unless it clearly helps. Ported from automix.
+pub fn best_key_shift(a: &Track, shift_a: i32, b: &Track) -> (i32, f32) {
+    let plain = key_score_shifted(a, shift_a, b, 0);
+    if a.a.key_conf < KEY_SHIFT_MIN_CONF || b.a.key_conf < KEY_SHIFT_MIN_CONF {
+        return (0, plain);
+    }
+    let (mut best, mut best_value, mut best_score) = (0, plain, plain);
+    for sh in [1, -1, 2, -2] {
+        let sc = key_score_shifted(a, shift_a, b, sh);
+        let v = sc - KEY_SHIFT_PENALTY * sh.abs() as f32;
+        if v > best_value + 1e-6 {
+            best = sh;
+            best_value = v;
+            best_score = sc;
+        }
+    }
+    if best != 0 && best_value < plain + KEY_SHIFT_MIN_GAIN {
+        return (0, plain);
+    }
+    (best, best_score)
 }
 
 /// (rate multiplier needed on `b`, beat multiplier used, score 0..1)
@@ -775,4 +816,18 @@ pub fn align_entry(a: &[f32], a_pos: f64, a_rate: f64, b: &[f32], b_pos: f64, b_
     }
     // a hit of B that shows up `lag` steps late means B must start that much further in
     (b_pos + best.1 as f64 * crate::tracks::SR as f64 / 200.0 * b_rate).max(0.0)
+}
+
+#[cfg(test)]
+mod key_shift_tests {
+    use super::*;
+
+    #[test]
+    fn camelot_shift_matches_the_wheel() {
+        // one semitone up = 7 steps round the wheel, letter unchanged
+        assert_eq!(shift_cam((8, 'B'), 1), (3, 'B'));
+        assert_eq!(shift_cam((8, 'A'), -1), (1, 'A'));
+        assert_eq!(shift_cam((5, 'A'), 2), (7, 'A'));
+        assert_eq!(shift_cam((5, 'A'), 0), (5, 'A'));
+    }
 }

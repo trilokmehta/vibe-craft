@@ -13,6 +13,7 @@ No original product exists to measure; every value is a design choice from the r
 | Mixing | echo = dotted eighth, feedback 0.5, ping-pong | estimated |
 | Mixing | tempo returns to normal after a mix at 0.4% per second | estimated |
 | Mixing | Blend / Filter+echo glide the tempo during the mix (outgoing deck ramps to the tempo where the next song plays unstretched, both follow bar by bar), ported from automix | automix |
+| Mixing | key shift: next song moved up to +-2 semitones when that lifts the Camelot match by 0.2 (0.05 per semitone), only when both key detections are sure (>= 0.05); kept for the rest of that song, tempo unchanged | automix |
 | Queue | keeps 4 tracks, avoids last 8 played, penalises same artist | estimated |
 | Mood energy targets | Chill .30, Party .85, Workout .80, Focus .42, Romantic .25, Discovery .55 | estimated |
 | Controls | Space pause, Left/Right prev/next, M mix now, D auto DJ, 1-4 tabs, Up/Down volume, L like | estimated |
