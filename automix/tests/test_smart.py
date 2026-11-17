@@ -84,3 +84,28 @@ def test_falls_back_for_very_short_tracks():
     plan = plan_smart_transition(a, b)
     assert plan.score is None  # simple rule was used
     assert plan.bars_a <= 8
+
+
+def test_overlap_length_follows_how_long_b_takes_to_build():
+    """A song with a long quiet intro gets a longer overlap than one that starts loud."""
+    import numpy as np
+
+    from automix.planner import smart
+
+    def levels(intro_bars: int, n: int = 64):
+        lv = np.ones(n)
+        lv[:intro_bars] = 0.2
+        return lv
+
+    lines = set(range(0, 64, 4))
+    rng = (0, 64)
+    best = {}
+    for intro in (4, 16):
+        la = np.ones(64)
+        la[48:] = 0.2  # A has a quiet outro
+        scores = {}
+        for length in (4, 8, 12, 16, 24):
+            total, parts = smart.score_candidate(la, levels(intro), lines, lines, rng, rng, 48, 0, length, 24)
+            scores[length] = parts["fit"]
+        best[intro] = max(scores, key=scores.get)
+    assert best[4] == 4 and best[16] == 16

@@ -8,7 +8,7 @@ the next one pick up?".
 Candidates
     Mix-out: every phrase line in the second half of A.
     Mix-in:  every phrase line in the first 40 % of B.
-    Length:  8, 16 or 32 bars (not longer than the --bars option).
+    Length:  4, 8, 12, 16, 24 or 32 bars (not longer than the --bars option).
 
 Score parts (each 0 = bad, 1 = good)
     flow    Energy before the transition (A) and after it (B) should be
@@ -19,6 +19,9 @@ Score parts (each 0 = bad, 1 = good)
             the start of B that is skipped). 32 lost bars = 0.
     phrase  The four corner points (start and end of the transition, in A
             and in B) should be phrase lines.
+    fit     The overlap should be as long as B needs to build up: B's loud
+            part should arrive when the transition ends. A song with a long
+            quiet intro gets a long overlap, a song that starts loud a short one.
     length  Small bonus for a long transition when it is clean, and for a
             short one when both tracks are busy.
     vocal   Only with vocal analysis (--vocals): 1 when the two tracks never
@@ -40,11 +43,13 @@ from .simple import (
 )
 from .vocals import activity, vocal_clash
 
-WEIGHTS = {"flow": 0.25, "clean": 0.25, "keep": 0.30, "phrase": 0.20}
+WEIGHTS = {"flow": 0.22, "clean": 0.22, "keep": 0.26, "phrase": 0.15, "fit": 0.15}
 LENGTH_WEIGHT = 0.10
 # When vocal data exists: total = (1 - VOCAL_WEIGHT) * the parts above + VOCAL_WEIGHT * vocal.
 VOCAL_WEIGHT = 0.25
-LENGTH_OPTIONS = (8, 16, 32)
+LENGTH_OPTIONS = (4, 8, 12, 16, 24, 32)
+# B counts as "built up" at this bar level (0..1); see _build_up_bars.
+BUILT_UP = 0.75
 # A bar this many dB below the loud parts of the track counts as "empty".
 QUIET_DB = 12.0
 LOST_BARS_LIMIT = 32
@@ -87,6 +92,15 @@ def _mean(levels: np.ndarray, first: int, last: int) -> float:
     return float(part.mean()) if len(part) else 0.0
 
 
+def _build_up_bars(levels_b: np.ndarray, j: int) -> int | None:
+    """Bars from bar j of B until B is at full power. 0 when it starts loud,
+    None when it does not build up within 32 bars."""
+    for k in range(j, min(len(levels_b), j + 32)):
+        if levels_b[k] >= BUILT_UP:
+            return k - j
+    return None
+
+
 def score_candidate(
     levels_a: np.ndarray,
     levels_b: np.ndarray,
@@ -122,11 +136,19 @@ def score_candidate(
     corners = [i in lines_a, i + bars in lines_a, j in lines_b, j + bars in lines_b]
     phrase = sum(corners) / 4.0
 
+    # fit: B should reach full power about when the transition ends.
+    build = _build_up_bars(levels_b, j)
+    if build is None or build < 2:
+        fit = 0.5  # nothing to fit: B starts loud, or never builds up
+    else:
+        fit = max(0.0, 1.0 - abs(bars - build) / max(bars, build))
+
     parts = {
         "flow": float(np.clip(flow, 0.0, 1.0)),
         "clean": clean,
         "keep": keep,
         "phrase": phrase,
+        "fit": fit,
     }
     total = sum(WEIGHTS[name] * parts[name] for name in WEIGHTS)
     total += LENGTH_WEIGHT * (bars / max_bars) * (1.0 - 2.0 * crowded)
