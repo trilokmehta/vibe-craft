@@ -11,7 +11,7 @@ impl App {
     fn track_card(&mut self, x: f32, y: f32, w: f32, label: &str, id: usize, eff: f32) {
         let lib = self.lib.clone();
         let t = &lib[id];
-        let accent = hsv(t.hue / 360.0, 0.45, 1.0);
+        let accent = hsv(warm_hue(t.hue), 0.55, 1.0);
         // compact card (108 px) so the whole Smart DJ screen fits without scrolling
         rrect(x, y, w, 108.0, 14.0, Color::new(1.0, 1.0, 1.0, 0.07));
         art(x + 12.0, y + 14.0, 80.0, t);
@@ -28,16 +28,16 @@ impl App {
     pub fn smart_dj(&mut self, w: f32) {
         let lib = self.lib.clone();
         let narrow = w < 960.0;
-        let pad = 28.0;
+        let pad = 32.0;
         let (lx, lw) = if narrow { (pad, w - 2.0 * pad) } else { (pad, w * 0.58 - pad) };
-        let mut y = HDR + 14.0 - self.scroll;
+        let mut y = HDR + 18.0 - self.scroll;
         let a = self.snap.active;
         let cur = self.current;
         let t = &lib[cur];
-        let accent = hsv(t.hue / 360.0, 0.45, 1.0);
+        let accent = hsv(warm_hue(t.hue), 0.55, 1.0);
         let eff_cur = t.a.bpm * self.snap.rate[a] as f32;
         let nxt = self.queue.first().map(|q| q.track);
-        let cw = (lw - 16.0) / 2.0;
+        let cw = (lw - 24.0) / 2.0;
         self.track_card(lx, y, cw, "NOW PLAYING", cur, eff_cur);
         self.mark("dj_cards");
         if let Some(n) = nxt {
@@ -45,9 +45,9 @@ impl App {
                 Some(ar) => lib[n].a.bpm * ar.in_rate as f32,
                 None => lib[n].a.bpm,
             };
-            self.track_card(lx + cw + 16.0, y, cw, "UP NEXT", n, eff_n);
+            self.track_card(lx + cw + 24.0, y, cw, "UP NEXT", n, eff_n);
         }
-        y += 118.0;
+        y += 128.0;
         rrect(lx, y, lw, 376.0, 14.0, Color::new(1.0, 1.0, 1.0, 0.05));
         self.tx("mix", "LIVE MIX", lx + 16.0, y + 26.0, 16.0, accent);
         draw_text(&fit("Drag on a song to play only that section. Click a point chip to choose where to mix.", 14.0, lw - 420.0), lx + 100.0, y + 26.0, 14.0, Color::new(1.0, 1.0, 1.0, 0.5));
@@ -84,7 +84,7 @@ impl App {
         }
         if let Some(n) = nxt {
             let tn = &lib[n];
-            let an = hsv(tn.hue / 360.0, 0.45, 1.0);
+            let an = hsv(warm_hue(tn.hue), 0.55, 1.0);
             let inn = 1 - a;
             let ph = if self.snap.playing[inn] { Some(self.snap.pos[inn]) } else { None };
             let in_at = self.armed.as_ref().map(|a| a.in_pos).unwrap_or(tn.a.origin);
@@ -145,9 +145,9 @@ impl App {
         };
         draw_text(&fit(&detail, 16.0, ww), wx, y + 332.0, 16.0, Color::new(1.0, 1.0, 1.0, 0.6));
         draw_text("Orange: possible exits   Blue: possible entries   Green: chosen mix start   Red: mix end   Shaded: selected section   Pink: DJ preview (Ctrl+drag the lower wave)", wx, y + 358.0, 14.0, Color::new(1.0, 1.0, 1.0, 0.4));
-        y += 392.0;
+        y += 408.0;
         if self.zoom {
-            y += self.beat_zoom(lx, y, lw, accent) + 16.0;
+            y += self.beat_zoom(lx, y, lw, accent) + 24.0;
         }
         if let Some(sc) = self.armed.as_ref().and_then(|ar| ar.script) {
             y = self.layer_timeline(&sc, prog, lx, y, lw, accent);
@@ -175,11 +175,11 @@ impl App {
                 }
             }
         }
-        y += 206.0;
+        y += 218.0;
         }
         let left_end = y;
         let (rx, rw) = if narrow { (pad, w - 2.0 * pad) } else { (w * 0.58 + 8.0, w * 0.42 - pad - 8.0) };
-        let ry0 = if narrow { left_end } else { HDR + 14.0 - self.scroll };
+        let ry0 = if narrow { left_end } else { HDR + 18.0 - self.scroll };
         let sw = rw - 32.0;
         let adv = self.advanced;
         // how many mood-chip rows fit
@@ -269,20 +269,20 @@ impl App {
             self.set.discovery = v;
             self.rebuild_queue();
         }
-        let mut rb = ry0 + ch + 10.0;
+        let mut rb = ry0 + ch + 18.0;
         // Layers take a lot of room: shown when the pro decks are hidden.
         if !adv || narrow {
             let lh = self.layers_panel(rx, rb, rw);
-            rb += lh + 10.0;
+            rb += lh + 18.0;
         }
         // The queue takes whatever height is left, so nothing needs scrolling.
         let limit = if adv && !narrow { left_end } else { screen_height() - FTR - 8.0 };
         let qrows = (((limit - rb) - 60.0) / 46.0).floor().clamp(2.0, 8.0) as usize;
-        rb += self.queue_panel(rx, rb, rw, accent, qrows) + 10.0;
+        rb += self.queue_panel(rx, rb, rw, accent, qrows) + 18.0;
         let ry = rb;
         let mut bottom = left_end.max(ry);
         if self.advanced {
-            bottom = self.pro_decks(pad, bottom + 4.0, w - 2.0 * pad);
+            bottom = self.pro_decks(pad, bottom + 12.0, w - 2.0 * pad);
         }
         self.content_h = bottom + self.scroll - HDR + 20.0;
     }
@@ -448,7 +448,7 @@ impl App {
             let name = if d == 0 { "DECK A" } else { "DECK B" };
             let on_air = self.snap.active == d;
             let tid = self.snap.track[d];
-            let accent = tid.map(|i| hsv(lib[i].hue / 360.0, 0.45, 1.0)).unwrap_or(WHITE);
+            let accent = tid.map(|i| hsv(warm_hue(lib[i].hue), 0.55, 1.0)).unwrap_or(WHITE);
             self.mark("decks");
             draw_text(name, px + 16.0, py + 26.0, 18.0, if on_air { accent } else { Color::new(1.0, 1.0, 1.0, 0.5) });
             if on_air {
@@ -517,7 +517,7 @@ impl App {
         if self.button(cx + cw - 16.0 - 84.0, cy0 + 8.0, 84.0, 26.0, "Auto mix", self.snap.trans.is_some(), a) {
             self.auto_mix_now();
         }
-        let deck_col = |d: usize| self.snap.track[d].map(|i| hsv(lib[i].hue / 360.0, 0.45, 1.0)).unwrap_or(a);
+        let deck_col = |d: usize| self.snap.track[d].map(|i| hsv(warm_hue(lib[i].hue), 0.55, 1.0)).unwrap_or(a);
         let (ca, cb) = (deck_col(0), deck_col(1));
         // meters read in dB: -36 dB .. 0 dB
         let db_level = |l: f32| (1.0 + 20.0 * l.max(1e-5).log10() / 36.0).clamp(0.0, 1.0);
@@ -587,21 +587,21 @@ impl App {
     pub fn queue_screen(&mut self, w: f32) {
         let lib = self.lib.clone();
         let accent = self.acc;
-        let mut y = HDR + 14.0 - self.scroll;
-        let x = 28.0;
-        let rw = w - 56.0;
+        let mut y = HDR + 18.0 - self.scroll;
+        let x = 32.0;
+        let rw = w - 64.0;
         self.tx("queue", "Up Next", x, y + 30.0, 36.0, WHITE);
         let bw = 150.0;
-        if self.button(w - 28.0 - bw, y + 4.0, bw, 34.0, "Smart sort", false, accent) {
+        if self.button(w - 32.0 - bw, y + 4.0, bw, 34.0, "Smart sort", false, accent) {
             smart_sort(&lib, Some(self.current), &mut self.queue, &self.set, &self.prof);
             self.dirty = true;
         }
-        if self.button(w - 28.0 - 2.0 * bw - 8.0, y + 4.0, bw, 34.0, "DJ refill", false, accent) {
+        if self.button(w - 32.0 - 2.0 * bw - 8.0, y + 4.0, bw, 34.0, "DJ refill", false, accent) {
             self.rebuild_queue();
         }
-        y += 52.0;
+        y += 58.0;
         draw_text("The DJ keeps this queue full. Pin tracks to lock them, or move and remove anything.", x, y, 17.0, Color::new(1.0, 1.0, 1.0, 0.55));
-        y += 18.0;
+        y += 26.0;
         let mut action: Option<(usize, usize)> = None;
         let n = self.queue.len();
         for i in 0..n {
@@ -610,23 +610,23 @@ impl App {
                 (q.track, q.pinned, q.manual, q.reason.clone())
             };
             let t = &lib[track];
-            let hh = 74.0;
-            rrect(x, y, rw, hh - 8.0, 12.0, Color::new(1.0, 1.0, 1.0, if pinned { 0.12 } else { 0.06 }));
-            art(x + 10.0, y + 8.0, 50.0, t);
-            let tx = x + 74.0;
+            let hh = 86.0;
+            rrect(x, y, rw, hh - 10.0, 12.0, Color::new(1.0, 1.0, 1.0, if pinned { 0.12 } else { 0.06 }));
+            art(x + 12.0, y + 11.0, 52.0, t);
+            let tx = x + 78.0;
             let btn_w = if w < 760.0 { 0.0 } else { 86.0 + 56.0 + 34.0 * 3.0 + 70.0 + 30.0 };
-            let mw = rw - 90.0 - btn_w;
-            draw_text(&fit(&format!("{}. {}", i + 1, t.title), 22.0, mw), tx, y + 26.0, 22.0, WHITE);
+            let mw = rw - 94.0 - btn_w;
+            draw_text(&fit(&format!("{}. {}", i + 1, t.title), 22.0, mw), tx, y + 28.0, 22.0, WHITE);
             let info = format!("{}  |  {:.0} BPM  |  {}  |  E{:.0}%{}", t.artist, t.a.bpm, camelot_str(t.a.key, t.a.minor), t.energy * 100.0, if manual { "  |  added by you" } else { "" });
-            draw_text(&fit(&info, 16.0, mw), tx, y + 46.0, 16.0, Color::new(1.0, 1.0, 1.0, 0.65));
+            draw_text(&fit(&info, 16.0, mw), tx, y + 49.0, 16.0, Color::new(1.0, 1.0, 1.0, 0.65));
             let why = reason.replace(" | ", "; ");
-            draw_text(&fit(&why, 14.0, mw), tx, y + 62.0, 14.0, Color::new(accent.r, accent.g, accent.b, 0.8));
+            draw_text(&fit(&why, 14.0, mw), tx, y + 66.0, 14.0, Color::new(accent.r, accent.g, accent.b, 0.8));
             if btn_w > 0.0 {
                 let mut cx = x + rw - btn_w - 6.0;
                 let labels = ["Mix now", "Next", "^", "v", if pinned { "Pinned" } else { "Pin" }, "x"];
                 let ws = [86.0, 56.0, 34.0, 34.0, 70.0, 34.0];
                 for (k, l) in labels.iter().enumerate() {
-                    if self.button(cx, y + 18.0, ws[k], 30.0, l, k == 4 && pinned, accent) {
+                    if self.button(cx, y + 23.0, ws[k], 30.0, l, k == 4 && pinned, accent) {
                         action = Some((i, k));
                     }
                     cx += ws[k] + 6.0;
@@ -634,7 +634,7 @@ impl App {
             }
             y += hh;
         }
-        self.content_h = y + self.scroll - HDR + 20.0;
+        self.content_h = y + self.scroll - HDR + 24.0;
         if let Some((i, k)) = action {
             match k {
                 0 => {
@@ -662,15 +662,15 @@ impl App {
     pub fn library_screen(&mut self, w: f32) {
         let lib = self.lib.clone();
         let accent = self.acc;
-        let mut y = HDR + 14.0 - self.scroll;
-        let x = 28.0;
-        let rw = w - 56.0;
+        let mut y = HDR + 18.0 - self.scroll;
+        let x = 32.0;
+        let rw = w - 64.0;
         self.tx("library", "Library", x, y + 30.0, 36.0, WHITE);
-        y += 52.0;
+        y += 58.0;
         // add-your-music panel + search
         let count_mine = lib.iter().filter(|t| t.user).count();
         let scanning = self.scanning();
-        let panel_h = if scanning { 150.0 } else if self.scan_failed.is_empty() { 132.0 } else { 132.0 + 20.0 * self.scan_failed.len().min(3) as f32 };
+        let panel_h = if scanning { 158.0 } else if self.scan_failed.is_empty() { 140.0 } else { 140.0 + 20.0 * self.scan_failed.len().min(3) as f32 };
         rrect(x, y, rw, panel_h, 16.0, Color::new(1.0, 1.0, 1.0, 0.06));
         rrect(x, y, 5.0, panel_h, 2.0, accent);
         draw_text("YOUR MUSIC", x + 24.0, y + 28.0, 16.0, accent);
@@ -702,7 +702,7 @@ impl App {
             let msg = if !self.scan_msg.is_empty() { self.scan_msg.clone() } else { "Choose any folder with MP3, WAV, FLAC or OGG files. Each song is analysed on this computer for tempo, key and energy.".to_string() };
             draw_text(&fit(&msg, 17.0, rw - 48.0), x + 24.0, y + 84.0, 17.0, Color::new(1.0, 1.0, 1.0, 0.75));
             draw_text(&fit(&format!("Folder: {}", self.music_dir), 14.0, rw - 520.0), x + 24.0, y + 112.0, 14.0, Color::new(1.0, 1.0, 1.0, 0.45));
-            let by = y + 94.0;
+            let by = y + 98.0;
             if self.button(x + rw - 24.0 - 150.0, by, 150.0, 34.0, "Reload", false, accent) {
                 self.begin_scan();
             }
@@ -722,7 +722,7 @@ impl App {
                 draw_text(&fit(&format!("Skipped: {}", f), 14.0, rw - 48.0), x + 24.0, y + 140.0 + 20.0 * i as f32, 14.0, Color::new(1.0, 0.6, 0.5, 0.9));
             }
         }
-        y += panel_h + 16.0;
+        y += panel_h + 24.0;
         let sb_w = (rw).min(420.0);
         let focus = self.search_focus;
         let hv = self.hov(x, y, sb_w, 36.0);
@@ -745,9 +745,9 @@ impl App {
                 self.search_focus = false;
             }
         }
-        y += 52.0;
+        y += 58.0;
         draw_text("MADE FOR YOU - learned from your likes, skips and listening", x, y + 10.0, 16.0, accent);
-        y += 22.0;
+        y += 28.0;
         let mut scored: Vec<(f32, usize)> = Vec::new();
         let recent: Vec<usize> = self.prof.history.iter().rev().take(6).cloned().collect();
         for t in lib.iter() {
@@ -774,9 +774,9 @@ impl App {
                 act = Some((t.id, false));
             }
         }
-        y += 120.0;
+        y += 132.0;
         draw_text("ALL TRACKS - analysed on this device (BPM, key and energy are measured from the audio)", x, y + 10.0, 16.0, Color::new(1.0, 1.0, 1.0, 0.5));
-        y += 22.0;
+        y += 28.0;
         for t in lib.iter() {
             let q = self.search.to_lowercase();
             if !q.is_empty() && !format!("{} {} {}", t.title, t.artist, t.genre).to_lowercase().contains(&q) {
@@ -804,9 +804,9 @@ impl App {
             if self.button(x + rw - 92.0, y + 14.0, 84.0, 30.0, "+ Queue", false, accent) {
                 act = Some((t.id, false));
             }
-            y += 64.0;
+            y += 72.0;
         }
-        self.content_h = y + self.scroll - HDR + 20.0;
+        self.content_h = y + self.scroll - HDR + 24.0;
         if let Some((id, play)) = act {
             if play {
                 self.play_now(id);

@@ -20,12 +20,16 @@ No original product exists to measure; every value is a design choice from the r
 
 ## Learned from the training DJ sets (training 1/2/3)
 
+Retrained 2026-11-19 (`trainer match` -> `segments` -> `fit`, 40/702 training songs matched into the mix, 7 usable transitions):
+
 | Habit seen in the real mixes | Value | Now in the engine |
 |---|---|---|
-| Time each song plays | median 37-45 s (15-27% of the song) | party pacing: may leave after 30% of a song (calm / 32-beat blends keep 55%) |
-| Where songs are entered | ~10% in, rarely at the very start | entry points chosen past the intro (unchanged) |
-| Tempo shift on a song | median 3-5%, up to 11% | beat-match allowed up to 16% (unchanged) |
-| BPM step after shifting | ~1% | tempo weight raised 2.2 -> 3.0 |
-| Camelot distance | 0-1 almost always | key weight 1.6 -> 0.9 (tempo is the main cue; key clashes are hidden with FX) |
+| Time each song plays | median 39 s, p10/90 18/59 s (8-29% of the song, median 17%) | party pacing: may leave after 30% of a song (calm / 32-beat blends keep 55%) |
+| Where songs are entered | median 15% in (p10/90 4/31%), 3/40 entered at the opening | entry points chosen past the intro (unchanged) |
+| Tempo shift on a song | median 3.0%, p90 7.0%, up to 11.0% | beat-match allowed up to 16% (unchanged) |
+| BPM step after shifting | median 1.2%, p90 2.2%, up to 2.9% | tempo weight raised 2.2 -> 3.0 (unchanged, consistent with the new sample) |
+| Camelot distance | mostly 0-2 over the 7 transitions seen ([1,0,2,1,2,1,0]) | key weight 1.6 -> 0.9 (tempo is the main cue; key clashes are hidden with FX) |
 | Groove similarity | | dance weight 0.5 -> 0.7 |
 | Transition tricks | short punchy mixes, loops, echo / reverb throws | new styles: Loop roll (1 bar -> 1/8 then drop on the one), Reverb wash; party sets rotate Blend / Filter+Echo (Loop roll is switched off in `app.rs`, `LOOP_ROLL_AUTO`, because it sounded like a stuck loop), key clashes alternate Echo out / Reverb wash |
+
+Note: this run's regression over the weights (`trainer fit`) only had 7 real transitions to learn from, too few to trust - it collapsed onto "dance-closeness only" (`learned (scaled): [0.00, 0.00, 0.00, 5.70]` vs the hand-tuned `[2.2, 1.6, 1.4, 0.5]`). The engine weights above were left as-is; only the timing/entry/tempo/Camelot habit numbers were refreshed from this run. Full output: `training 1/results/fit.txt`.

@@ -117,7 +117,7 @@ impl App {
                 }
             };
             let tr = &lib[t];
-            let tint = hsv(tr.hue / 360.0, 0.45, 1.0);
+            let tint = hsv(warm_hue(tr.hue), 0.55, 1.0);
             let rate = self.snap.rate[d].max(0.1);
             let live = row == 0 || self.snap.playing[d];
             let mut center = if live { self.snap.pos[d] } else { self.armed.as_ref().filter(|ar| ar.track == t).map(|ar| ar.in_pos).unwrap_or(tr.a.origin) };

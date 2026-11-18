@@ -1,9 +1,9 @@
 //! Vibe Craft logo, drawn procedurally so the window icon, the header badge
 //! and the .exe icon (via build.rs) all come from one place.
 //!
-//! Design: a rounded square with a violet -> pink -> cyan diagonal gradient,
-//! faint vinyl grooves, and a bold white "V" whose right arm turns into a
-//! row of equalizer bars.
+//! Design: a rounded square with a warm coral -> amber -> gold diagonal
+//! gradient, faint vinyl grooves, and a bold white "V" whose right arm turns
+//! into a row of equalizer bars.
 
 fn clamp01(x: f32) -> f32 {
     x.max(0.0).min(1.0)
@@ -37,11 +37,11 @@ fn sample(x: f32, y: f32) -> [f32; 4] {
         return [0.0; 4];
     }
     // Diagonal gradient.
-    let violet = [0.42, 0.16, 0.85];
-    let pink = [0.93, 0.28, 0.60];
-    let cyan = [0.13, 0.83, 0.93];
+    let coral = [0.82, 0.24, 0.20];
+    let amber = [0.97, 0.56, 0.18];
+    let gold = [1.0, 0.80, 0.38];
     let t = clamp01((x + y) * 0.5);
-    let mut c = if t < 0.55 { mix(violet, pink, t / 0.55) } else { mix(pink, cyan, (t - 0.55) / 0.45) };
+    let mut c = if t < 0.55 { mix(coral, amber, t / 0.55) } else { mix(amber, gold, (t - 0.55) / 0.45) };
     // Soft top highlight.
     let hl = clamp01(1.0 - y * 1.8) * 0.12;
     c = mix(c, [1.0, 1.0, 1.0], hl);

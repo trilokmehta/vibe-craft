@@ -31,6 +31,17 @@ pub fn hsv(h: f32, s: f32, v: f32) -> Color {
     Color::new(r, g, b, 1.0)
 }
 
+/// Folds any hue (degrees, any range) into Vibe Craft's warm house band: deep
+/// rose through red and orange into amber-gold. Per-track colour (from cover
+/// art or the demo library) still varies, but it always reads as part of one
+/// warm, premium palette instead of drifting into cool teals and violets.
+pub fn warm_hue(deg: f32) -> f32 {
+    const BAND_START: f32 = -22.0;
+    const BAND_WIDTH: f32 = 72.0;
+    let f = deg.rem_euclid(360.0) / 360.0;
+    (BAND_START + BAND_WIDTH * f).rem_euclid(360.0) / 360.0
+}
+
 pub fn goertzel(seg: &[f32], freq: f32, sr: f32) -> f32 {
     let w = 2.0 * std::f32::consts::PI * freq / sr;
     let c = 2.0 * w.cos();
@@ -226,8 +237,8 @@ impl App {
             click: false,
             down: false,
             clip: true,
-            amb: Color::new(0.1, 0.1, 0.15, 1.0),
-            acc: Color::new(0.6, 0.95, 0.85, 1.0),
+            amb: Color::new(0.1, 0.07, 0.05, 1.0),
+            acc: Color::new(1.0, 0.72, 0.4, 1.0),
             anim: std::collections::HashMap::new(),
             dt: 0.016,
             last_save: 0.0,
@@ -860,10 +871,10 @@ impl App {
             self.toast_t -= dt;
         }
         let t = &self.lib[self.current];
-        let target = hsv(t.hue / 360.0, 0.6, 0.30);
+        let target = hsv(warm_hue(t.hue), 0.55, 0.22);
         let k = (dt * 2.0).min(1.0);
         self.amb = Color::new(self.amb.r + (target.r - self.amb.r) * k, self.amb.g + (target.g - self.amb.g) * k, self.amb.b + (target.b - self.amb.b) * k, 1.0);
-        let ta = hsv(t.hue / 360.0, 0.45, 1.0);
+        let ta = hsv(warm_hue(t.hue), 0.6, 1.0);
         let ka = (dt * 3.0).min(1.0);
         self.acc = Color::new(self.acc.r + (ta.r - self.acc.r) * ka, self.acc.g + (ta.g - self.acc.g) * ka, self.acc.b + (ta.b - self.acc.b) * ka, 1.0);
         self.dt = dt;

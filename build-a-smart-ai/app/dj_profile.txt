@@ -1,116 +1,115 @@
-g	Unknown	-1.7300007
-g	Pop	-0.235
-g	Workout	-0.125
-g	Synthwave	0.78999984
-g	House	-0.235
 g	Focus	-0.07499999
-g	Techno	-0.11
-a	Inder Arya, Anisha Ranghar, Raj Tiger	0.036000002
+g	Techno	-0.205
+g	Workout	-0.125
+g	Romantic	-0.125
+g	House	-0.485
+g	Pop	-0.235
+g	Synthwave	0.5849998
+g	Unknown	-1.7900001
 a	Pandavaas	0.018000001
-a	Amit Saagar	-0.078
-a	Jagmohan Digari	0.21600004
-a	Late.Pappu Karki, Meena Rana	-0.132
-a	Fauji Lalit Mohan Joshi	-0.060000002
-a	Govind Digari, Khushi Joshi	0.018000001
-a	Ambient Atlas	-0.08999999
-a	Gaurav Bisht, Mamta Arya	-0.528
-a	Pappu Karki	-0.22800002
-a	Kito Vale	-0.15
-a	Inder Arya, Jyoti Rana	0.036000002
-a	Nova Drift	-0.132
-a	Unknown artist	0.20400006
-a	Inder Arya	-0.15
-a	Balveer singh rana	-0.060000002
-a	Mara Voss	-0.132
-a	Priyanka Meher, Deepak Meher	0.018000001
-a	Gaurav Bisht	-0.22800002
-a	Chandra Prakash	0.036000002
-a	Aria Lane	-0.282
-a	Gajendra Rana	-0.15
-a	Your music	0.018000001
-a	Jitendra Tomkyal	-0.042000003
-a	The Afterglow	0.9480002
-a	Lalit Mohan Joshi, Jitendra Tomkyal	0.018000001
-a	Diksha Dhoundiyal, Fauji Dayal Mehra	0.036000002
-a	Mahesh Joshi	-0.0059999973
-a	Gunjan Dangwal, Ranjeet Singh, Vishal Sharma	-0.11400001
 a	Gajendra Rana, Meena Rana	-0.72
-a	Pulse Theory	-0.15
+a	Lalit Mohan Joshi, Jitendra Tomkyal	0.018000001
+a	Nova Drift	-0.282
+a	Luna Reyes	-0.15
+a	Pappu Karki	-0.22800002
+a	Priyanka Meher, Deepak Meher	0.018000001
+a	Mahesh Joshi	-0.0059999973
+a	Unknown artist	-0.4139998
 a	B.K. Samant	-0.042000003
-a	Manoj Arya	0.018000001
-a	Diksha Dhoundiyal, Vijay Prakash	0.018000001
-a	Lalit Mohan Joshi	-0.264
+a	The Afterglow	0.70200026
+a	Inder Arya	-0.15
+a	Kito Vale	-0.3
+a	Jagmohan Digari	0.21600004
+a	Ambient Atlas	-0.08999999
+a	Gajendra Rana	-0.15
+a	Amit Saagar	-0.078
 a	Balbir Rana, Kalpana Chauhan	0.036000002
+a	Fauji Lalit Mohan Joshi	-0.060000002
+a	Gaurav Bisht	-0.22800002
+a	Your music	0.018000001
+a	Inder Arya, Jyoti Rana	0.036000002
+a	Balveer singh rana	-0.060000002
+a	Pulse Theory	-0.15
+a	Diksha Dhoundiyal, Vijay Prakash	0.018000001
+a	Manoj Arya	0.018000001
+a	Inder Arya, Anisha Ranghar, Raj Tiger	0.036000002
+a	Late.Pappu Karki, Meena Rana	-0.132
+a	Chandra Prakash	0.036000002
+a	Lalit Mohan Joshi	-0.264
+a	Jitendra Tomkyal	-0.042000003
+a	Aria Lane	-0.282
+a	Mara Voss	-0.24599999
+a	Diksha Dhoundiyal, Fauji Dayal Mehra	0.036000002
+a	Gaurav Bisht, Mamta Arya	-0.528
+a	Gunjan Dangwal, Ranjeet Singh, Vishal Sharma	-0.11400001
+a	Govind Digari, Khushi Joshi	0.018000001
 t	Midnight Circuit	Nova Drift	2	1	0	0	-0.22
-t	Glass Elevator	Nova Drift	0	0	0	0	0
-t	Skyline Rush	Kito Vale	1	1	0	0	-0.25
-t	Concrete Pulse	Mara Voss	0	0	0	0	0
-t	Static Bloom	Mara Voss	2	1	0	0	-0.22
+t	Glass Elevator	Nova Drift	1	1	0	0	-0.25
+t	Skyline Rush	Kito Vale	2	2	0	0	-0.5
+t	Concrete Pulse	Mara Voss	1	0	0	0	0.03
+t	Static Bloom	Mara Voss	4	2	0	0	-0.44
 t	Velvet Hour	Luna Reyes	0	0	0	0	0
 t	Paper Lanterns	Hazel Moon	0	0	0	0	0
 t	Tidewater	Hazel Moon	0	0	0	0	0
 t	Back Alley Gold	Rook & Co	0	0	0	0	0
 t	Sunset Boulevard	Aria Lane	3	2	0	0	-0.47
 t	Electric Heart	Aria Lane	0	0	0	0	0
-t	Chrome Horizon	The Afterglow	22	1	0	0	1.5799997
+t	Chrome Horizon	The Afterglow	27	3	0	0	1.1699996
 t	Overdrive	Pulse Theory	1	1	0	0	-0.25
-t	Last Dance	Luna Reyes	0	0	0	0	0
+t	Last Dance	Luna Reyes	1	1	0	0	-0.25
 t	Deep Focus Loop	Ambient Atlas	11	3	0	0	-0.14999998
-t	01 - PITBULL - I know you want me (calle ocho) [Official video HD]	Unknown artist	0	0	0	0	0
-t	02 - Ishq Di Galli Vich - No Entry ｜ Salman Khan, Anil Kapoor & Bipasha ｜ Sonu Nigam,	Unknown artist	0	0	0	0	0
-t	03 - It's Magic - Koi Mil Gaya ｜ Hrithik Roshan & Preity Zinta ｜ Taz (Stereo Nation) 	Unknown artist	0	0	0	0	0
-t	04 - Dil Na Diya (Full Song) Krrish ｜ Hrithik Roshan, Priyanka Chopra ｜ Rajesh Roshan	Unknown artist	0	0	0	0	0
-t	05 - Nach Baliye	Unknown artist	0	0	0	0	0
-t	06 - Jeene Ke Hain Chaar Din - Video Song ｜ Mujhse Shaadi Karogi ｜ Sonu N, Sunidhi C 	Unknown artist	0	0	0	0	0
-t	07 - Just Chill Full HD Video Song ｜ Maine Pyaar Kyun Kiya ｜ Salmaan Khan ｜ Katreena 	Unknown artist	0	0	0	0	0
-t	08 - It's the Time to Disco	Unknown artist	0	0	0	0	0
-t	09 - Koi Kahe Kehta Rahe Full Song ｜ Dil Chahta Hai ｜ Aamir Khan, Akshaye Khanna, Sai	Unknown artist	0	0	0	0	0
-t	10 - Signal - Video Song ｜ Bhagam Bhag ｜ Pritam ｜ Remo Fernandes ｜ Govinda, Akshay Ku	Unknown artist	0	0	0	0	0
-t	11 - Ding Dong Dole (Full Song) Film - Kucch To Hai	Unknown artist	0	0	0	0	0
-t	12 - Main Toh Raste Se Ja Raha Tha ｜ Coolie No. 1 ｜ Govinda & Karisma Kapoor ｜ 90's B	Unknown artist	0	0	0	0	0
-t	13 - Mirchi	Unknown artist	0	0	0	0	0
-t	14 - PARTYNEXTDOOR, Drake - NOKIA	Unknown artist	0	0	0	0	0
-t	15 - Drake - Janice STFU	Unknown artist	2	0	0	0	0.06
-t	16 - Dhak Dhak	Unknown artist	0	0	0	0	0
-t	17 - Jatt Don’t Care - Sultaan X BIG Ghuman ( Official Music Video )	Unknown artist	0	0	0	0	0
-t	18 - Boom Shaka (Official Music Video) ｜ KR$NA ｜  Dhanda Nyoliwala	Unknown artist	0	0	0	0	0
-t	19 - Balma ｜ Official Music Video ｜ Bali ft Aastha Gill	Unknown artist	0	0	0	0	0
-t	20 - White Brown Black - Avvy Sra ｜ Karan Aujla ｜ Jaani ｜ Amanninder Singh ｜ Desi Mel	Unknown artist	0	0	0	0	0
-t	21 - KR$NA - Joota Japani ｜ Official Music Video	Unknown artist	0	0	0	0	0
-t	22 - Gangsta - Karan Aujla Ft. YG ｜ Rupan Bal ｜ Yeah Proof (Official Music Video)	Unknown artist	0	0	0	0	0
-t	23 - Saiyaan Ji ｜ (Official Music Video)：Yo Yo Honey Singh ｜ Neha Kakkar ｜ @YoYoHoney	Unknown artist	4	0	0	0	0.24000001
-t	24 - Laal Peeli Akhiyaan (Song) Shahid Kapoor,Kriti Sanon,Tanishk,Romy ｜ Teri Baaton 	Unknown artist	0	0	0	0	0
-t	25 - Yaad Aa Raha Hai (HD) ｜ Disco Dancer (1982) ｜ Bappi Lahiri ｜ Mithun Chakraborty 	Unknown artist	2	0	0	0	0.06
-t	26 - The Bilz & Kashif - Single ｜ Official Music Video HD	Unknown artist	2	1	0	0	-0.22
-t	27 - Where's The Party Tonight Full Video - KANK｜John, Abhishek, Preity｜Shaan, Vasund	Unknown artist	0	0	0	0	0
-t	28 - LMFAO - Party Rock Anthem (Audio) ft. Lauren Bennett, GoonRock	Unknown artist	0	0	0	0	0
-t	29 - Tu Meri Full Video ｜ BANG BANG! ｜ Hrithik Roshan & Katrina Kaif ｜ Vishal Shekhar	Unknown artist	0	0	0	0	0
-t	30 - Subha Hone Na De 8K Full Video Song ｜ Desi Boyz ｜ Akshay Kumar, John Abraham ｜ P	Unknown artist	0	0	0	0	0
-t	31 - Icona Pop - I Love It (feat. Charli XCX) [Official Music Video]	Unknown artist	0	0	0	0	0
-t	32 - Sadi Gali Lyrical Video Song ｜ Tanu Weds Manu ｜ Ft. Kangna Ranaut, R Madhavan	Unknown artist	0	0	0	0	0
-t	33 - Chaar Botal Vodka Full Song Feat. Yo Yo Honey Singh, Sunny Leone ｜ Ragini MMS 2	Unknown artist	0	0	0	0	0
-t	34 - Char Baj Gaye Lyric Video - F.A.L.T.U｜Jackky Bhagnani｜Hard Kaur｜Remo D'Souza｜Sac	Unknown artist	0	0	0	0	0
-t	35 - Party On My Mind	Unknown artist	1	0	0	0	0.03
-t	36 - 4K Remastered - Uff Teri Ada ｜ Deepika Padukone, Farhan Akhtar ｜ Karthik Calling	Unknown artist	0	0	0	0	0
-t	37 - Sunny Sunny ((Yaariyan)) Full Video Song I Himansh K ｜ Rakul Preet ｜ Yo Yo Honey	Unknown artist	0	0	0	0	0
-t	38 - Full Video： Hookah Bar ｜ Khiladi 786 ｜ Akshay Kumar & Asin ｜ Himesh Reshammiya	Unknown artist	0	0	0	0	0
-t	39 - Softly	Unknown artist	2	0	0	0	0.06
-t	40 - Kratex, Shreyas - Taambdi Chaamdi (Official Music Video)	Unknown artist	0	0	0	0	0
-t	41 - Ghafoor (Full Video) ｜ Ba＊＊＊ds Of Bollywood ｜ Aryan K ｜ Shashwat,Shilpa, Ujwal,T	Unknown artist	0	0	0	0	0
-t	42 - TiK ToK	Unknown artist	3	1	0	0	-0.19
-t	43 - Golmaal (Fun Unlimited) Title Track Lyrical Video Song ｜ Ajay Devgan, Arshad War	Unknown artist	0	0	0	0	0
-t	44 - Full Video： Pappu Can't Dance ｜ Jaane Tu Ya Jaane Na ｜ Imran Khan ｜ A.R. Rahman	Unknown artist	0	0	0	0	0
-t	45 - Dance Pe Chance ｜ Full Song ｜ Rab Ne Bana Di Jodi ｜ Shah Rukh Khan, Anushka ｜ Su	Unknown artist	0	0	0	0	0
-t	46 - Shut Up & Bounce	Unknown artist	0	0	0	0	0
-t	47 - Aal Izz Well – 3 Idiots ｜ Aamir Khan, Madhavan, Sharman J ｜ Sonu N, Swanand K & 	Unknown artist	0	0	0	0	0
-t	48 - Ra One： Chammak Challo 8K Video Song ｜ Shah Rukh Khan ｜ Kareena Kapoor Khan ｜ Vi	Unknown artist	0	0	0	0	0
-t	49 - Desi Girl Full Video - Dostana｜John,Abhishek,Priyanka｜Sunidhi Chauhan, Vishal Da	Unknown artist	0	0	0	0	0
-t	50 - Barbie Girl	Unknown artist	0	0	0	0	0
-t	51 - Aaj Ki Raat Full Video Song [4K 2160p &1080p] Don (2006)	Unknown artist	0	0	0	0	0
-t	52 - KR$NA - I Guess ｜ Official Music Video	Unknown artist	0	0	0	0	0
-t	53 - KR$NA ft. Seedhe Maut - Hola Amigo ｜ Official Music Video	Unknown artist	0	0	0	0	0
-t	54 - Seedhe Maut - Raat Ki Raani Live at Mood Indigo 2025 ｜ MI Studio ｜ IIT Bombay	Unknown artist	0	0	0	0	0
-t	55 - True Stories -  AP Dhillon ｜ Shinda Kahlon (Official Music Video)	Unknown artist	0	0	0	0	0
-t	56 - ＂Dil Dooba [Full Song]＂ Hindi Film Khakee Ft. Aishwarya Rai, Akshay Kumar	Unknown artist	2	0	0	0	0.06
-t	57 - DIVINE - You & I ｜ Kalyani Priyadarshan ｜ Prod. by Zzorawar ｜ Official Music Vid	Unknown artist	3	0	0	0	0.089999996
-t	58 - Sage	Unknown artist	0	0	0	0	0
+t	'Girls Like To Swing' Full VIDEO Song ｜ Dil Dhadakne Do ｜ T-Series	Unknown artist	0	0	0	0	0
+t	'Pehli Baar' Full Song with LYRICS ｜ Dil Dhadakne Do ｜ Ranveer Singh, Anushka Sharma ｜ T-Series	Unknown artist	0	0	0	0	0
+t	2 States Offo Full Song  ｜ Arjun Kapoor, Alia Bhatt ｜ Aditi Singh Sharma, Amitabh Bhattacharya	Unknown artist	0	0	0	0	0
+t	ABCD Yaariyan Feat. Yo Yo Honey Singh Full Video Song ｜Himansh K, Rakul P ｜Pritam｜Divya Khosla Kumar	Unknown artist	0	0	0	0	0
+t	Aahun Aahun - Lyrical Video ｜ Saif Ali Khan ｜ Deepika Padukone ｜ Neeraj Shridhar ｜ Love Aaj Kal	Unknown artist	0	0	0	0	0
+t	Aal Izz Well – 3 Idiots ｜ Aamir Khan, Madhavan, Sharman J ｜ Sonu N, Swanand K & Shaan ｜ Shantanu M	Unknown artist	0	0	0	0	0
+t	Aankhein Khuli Song ｜ Mohabbatein ｜ Shah Rukh Khan, Aishwarya Rai ｜ Lata Mangeshkar, Udit Narayan	Unknown artist	0	0	0	0	0
+t	Bachna Ae Haseeno Title Song ｜ Ranbir, Deepika, Bipasha, Minissha ｜Kishore Kumar, Vishal and Shekhar	Unknown artist	0	0	0	0	0
+t	Balam Pichkari (Full Video) ｜ Yeh Jawaani Hai Deewani ｜ Pritam ｜ Ranbir Kapoor, Deepika ｜ Holi Song	Unknown artist	0	0	0	0	0
+t	Chaar Botal Vodka Full Song Feat. Yo Yo Honey Singh, Sunny Leone ｜ Ragini MMS 2	Unknown artist	0	0	0	0	0
+t	Char Baj Gaye Lekin Party Abhi Baki ｜ Hard Kaur ｜ Sachin-Jigar ｜ Jackky B ｜ Party Songs Bollywood	Unknown artist	0	0	0	0	0
+t	Cutiepie (Full Video) ｜ ADHM ｜ Ranbir Kapoor Anushka ｜ Pardeep, Nakash Aziz ｜ Pritam ｜ Karan Johar	Unknown artist	0	0	0	0	0
+t	DIVINE - MIRCHI (Official Video) ft. MC Altaf, Stylo G, Phenom	Unknown artist	0	0	0	0	0
+t	Dance Pe Chance ｜ Full Song ｜ Rab Ne Bana Di Jodi ｜ Shah Rukh Khan, Anushka ｜ Sunidhi, Labh Janjua	Unknown artist	0	0	0	0	0
+t	Don Miguelo - Y Que Fue？	Unknown artist	0	0	0	0	0
+t	Dope Shope (Official Video) ｜ Yo Yo Honey Singh & Deep Money ｜ International Villager ｜ Superhit	Unknown artist	0	0	0	0	0
+t	Faltu Lyric Video - Title Track｜Jackky Bhagnani｜Mika Singh｜Remo D'Souza｜Sachin-Jigar	Unknown artist	0	0	0	0	0
+t	Full Video： Hookah Bar ｜ Khiladi 786 ｜ Akshay Kumar & Asin ｜ Himesh Reshammiya	Unknown artist	0	0	0	0	0
+t	Full Video： Pappu Can't Dance ｜ Jaane Tu Ya Jaane Na ｜ Imran Khan ｜ A.R. Rahman	Unknown artist	0	0	0	0	0
+t	Full Video： Soni De Nakhre ｜ Partner ｜ Govinda, Salman Khan, Katrina Kaif ｜ Sajid - Wajid	Unknown artist	0	0	0	0	0
+t	Golmaal - Video Song ｜ Golmaal Returns ｜ Shaan, K.K., Vishal Dadlani ｜ Ajay Devgn,Kareena Kapoor	Unknown artist	0	0	0	0	0
+t	Gulabi ｜ Full Song ｜ Shuddh Desi Romance ｜ Sushant Singh Rajput, Vaani Kapoor, Sachin-Jigar, Jaideep	Unknown artist	0	0	0	0	0
+t	HIGH HEELS TE NACHCHE Video Song ｜ KI & KA ｜ Meet Bros ft. Jaz Dhami ｜ Yo Yo Honey Singh ｜ T-Series	Unknown artist	0	0	0	0	0
+t	Hungama Ho Gaya with lyrics ｜ हंगामा हो गया गाने के बोल ｜ Queen ｜ Kangana Ranaut⧸Lisa Haydon	Unknown artist	0	0	0	0	0
+t	I Hate You (LIKE I LOVE YOU) I DELHI BELLY I RAM SAMPATH	Unknown artist	0	0	0	0	0
+t	Ik Junoon (Paint it red) Full Song Zindagi Na Milegi Dobara ｜ Hrithik, Katrina, Farhan Akhtar	Unknown artist	0	0	0	0	0
+t	Ishq Kameena ｜ Shakti ｜ Shahrukh Khan ｜ Aishwarya Rai I Sonu Nigam ｜ Alka Yagnik	Unknown artist	0	0	0	0	0
+t	It's Magic - Koi Mil Gaya ｜ Hrithik Roshan & Preity Zinta ｜ Taz (Stereo Nation) ｜ Rajesh Roshan	Unknown artist	0	0	0	0	0
+t	It's the Time to Disco - Kal Ho Naa Ho ｜ Shahrukh, Saif, Preity ｜ Shankar Ehsaan Loy	Unknown artist	0	0	0	0	0
+t	Jee Karda ｜ Singh Is Kinng ｜ Akshay Kumar, Katrina Kaif ｜ Pritam ｜ Party Song ｜ Bollywood Song	Unknown artist	0	0	0	0	0
+t	Jeene Ke Hain Chaar Din 8K Video ｜ Salman Khan ｜ Priyanka ｜ Mujhse Shaadi Karogi ｜ Sonu N, Sunidhi C	Unknown artist	0	0	0	0	0
+t	Koi Kahe Kehta Rahe Full Song ｜ Dil Chahta Hai ｜ Aamir Khan, Akshaye Khanna, Saif Ali Khan	Unknown artist	0	0	0	0	0
+t	Lat Lag Gayee ｜ Race 2 ｜ Saif Ali Khan, Jacqueline ｜ Benny Dayal, Shalmali ｜ Pritam ｜ Party Song	Unknown artist	0	0	0	0	0
+t	Love You Zindagi Full Video - Dear Zindagi ｜ Alia Bhatt ｜Shah Rukh Khan ｜Jasleen Royal ｜ Amit T	Unknown artist	0	0	0	0	0
+t	Mahiya Mahiya (HD) Video Song ｜ Awarapan Movie ｜ Mrinalini Sharma, Emraan Hashmi ｜ Hindi Songs	Unknown artist	0	0	0	0	0
+t	Main Toh Raste Se Ja Raha Tha ｜ Kumar Sanu ｜ Alka Yagnik ｜ Coolie No.1 ｜ 1995	Unknown artist	0	0	0	0	0
+t	Mind Blowing Mahiya [Full Song] ｜ Cash	Unknown artist	0	0	0	0	0
+t	Mit Jaaye Gham - Video Song ｜ Dum Maaro Dum ｜ Pritam ｜ Anushka Manchanda ｜ Deepika Padukone	Unknown artist	0	0	0	0	0
+t	Move Your Body Full Song ｜ Johnny Gaddaar ｜ Hard Kaur ｜ Shankar Ehsaan Loy	Unknown artist	0	0	0	0	0
+t	Naughty Naughty - Video Song ｜ Cash ｜ Anushka Manchanda ｜ Riteish D,Zayed K,Esha D, Diya M,Shamita S	Unknown artist	0	0	0	0	0
+t	O Meri Zohrajabeen Lyrical Video Song｜ Phir Hera Pheri ｜ Himesh Reshammiya｜Akshay Kumar,Sunil Shetty	Unknown artist	0	0	0	0	0
+t	Ooh La La - Video Song ｜ The Dirty Picture ｜ Bappi Lahiri,Shreya Ghoshal ｜ Vidya Balan,Naseeruddin S	Unknown artist	0	0	0	0	0
+t	PITBULL - I know you want me (calle ocho) [Official video HD]	Unknown artist	0	0	0	0	0
+t	Party On My Mind ｜ Race 2 ｜ Saif Ali, John, Deeepika, Jacqueline & Amisha ｜ Pritam ｜ Honey Singh	Unknown artist	0	0	0	0	0
+t	Radha - SOTY ｜ Alia Bhatt ｜ Sidharth Malhotra ｜ Varun Dhawan ｜ Udit Narayan ｜ Shreya Ghoshal ｜ 4K	Unknown artist	0	0	0	0	0
+t	Sadi Gali Full Song Tanu Weds Manu ｜ Ft. Kangna Ranaut, R Madhavan	Unknown artist	0	0	0	0	0
+t	Signal Addition ｜ Example 2 ｜ Basic Signal Operations ｜ Signals And Systems	Unknown artist	0	0	0	0	0
+t	The Disco Song Full Song - SOTY｜Alia Bhatt,Sidharth Malhotra,Varun Dhawan｜Sunidhi Chauhan	Unknown artist	0	0	0	0	0
+t	Tu Meri Full Video ｜ BANG BANG! ｜ Hrithik Roshan & Katrina Kaif ｜ Vishal Shekhar ｜ Dance Party Song	Unknown artist	0	0	0	0	0
+t	Uff Teri Adaa Full Video Song ｜ Karthik Calling Karthik ｜ Farhan Akhtar, Deepika Padukone	Unknown artist	0	0	0	0	0
+t	Wedding Choreography Practice at a Residence in South Delhi - Just Chill	Unknown artist	0	0	0	0	0
+t	＂Aisa Jaadu Dala Re [Full Song]＂ ｜ Khakee ｜ Lara Dutta & Akshaye Kumar	Unknown artist	0	0	0	0	0
+t	＂Ek Main Aur Ekk Tu Title Song＂ ｜ Imran Khan ｜ Kareena Kapoor	Unknown artist	0	0	0	0	0
+t	＂Subha Hone Na De Full Song＂｜ Desi Boyz ｜ Akshay Kumar ,John Abraham ｜ Pritam ｜  Mika Singh, Kumaar	Unknown artist	0	0	0	0	0
+t	＂Sunny Sunny Yaariyan＂ Full Video Song (Film Version) ｜Divya Khosla Kumar｜Himansh Kohli, Rakul Preet	Unknown artist	0	0	0	0	0

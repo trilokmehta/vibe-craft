@@ -5,17 +5,19 @@ use crate::tracks::{camelot_str, key_name, Track, SR};
 use macroquad::prelude::*;
 use std::sync::Arc;
 
-pub const HDR: f32 = 60.0;
-pub const FTR: f32 = 100.0;
+pub const HDR: f32 = 68.0;
+pub const FTR: f32 = 112.0;
 
+/// Hand-picked so every mood still reads distinctly while staying inside
+/// the warm house palette (deep rose through red, orange and amber-gold).
 pub fn mood_hue(m: Mood) -> f32 {
     match m {
-        Mood::Chill => 0.55,
-        Mood::Party => 0.85,
-        Mood::Workout => 0.02,
-        Mood::Focus => 0.38,
-        Mood::Romantic => 0.93,
-        Mood::Discovery => 0.13,
+        Mood::Chill => 0.12,
+        Mood::Party => 0.97,
+        Mood::Workout => 0.025,
+        Mood::Focus => 0.155,
+        Mood::Romantic => 0.945,
+        Mood::Discovery => 0.075,
     }
 }
 
@@ -168,15 +170,15 @@ pub fn art(x: f32, y: f32, s: f32, t: &Track) {
 }
 
 fn art_generated(x: f32, y: f32, s: f32, t: &Track) {
-    let c1 = hsv(t.hue / 360.0, 0.65, 0.9);
-    let c2 = hsv((t.hue + 60.0) / 360.0, 0.75, 0.30);
+    let c1 = hsv(warm_hue(t.hue), 0.55, 0.88);
+    let c2 = hsv(warm_hue(t.hue + 60.0), 0.65, 0.28);
     let n = 40;
     for i in 0..n {
         let f = i as f32 / n as f32;
         let c = Color::new(c1.r + (c2.r - c1.r) * f, c1.g + (c2.g - c1.g) * f, c1.b + (c2.b - c1.b) * f, 1.0);
         draw_rectangle(x, y + s * f, s, s / n as f32 + 1.0, c);
     }
-    let a = hsv((t.hue + 30.0) / 360.0, 0.4, 1.0);
+    let a = hsv(warm_hue(t.hue + 30.0), 0.45, 1.0);
     match t.id % 3 {
         0 => {
             draw_circle(x + s * 0.65, y + s * 0.38, s * 0.26, Color::new(a.r, a.g, a.b, 0.55));
@@ -273,7 +275,7 @@ impl App {
                     let tx = (x + bw / 2.0 - tw_ / 2.0).clamp(6.0, (w - tw_ - 6.0).max(6.0));
                     let ty = if y > HDR + 40.0 { y - 34.0 } else { y + bh + 8.0 };
                     rrect(tx - 1.0, ty - 1.0, tw_ + 2.0, 28.0, 9.0, Color::new(1.0, 1.0, 1.0, 0.25));
-                    rrect(tx, ty, tw_, 26.0, 8.0, Color::new(0.03, 0.03, 0.06, 0.97));
+                    rrect(tx, ty, tw_, 26.0, 8.0, Color::new(0.035, 0.028, 0.024, 0.97));
                     draw_text(&txt, tx + 11.0, ty + 18.0, 15.0, WHITE);
                 }
             }
@@ -483,22 +485,22 @@ impl App {
         let spb = SR as f64 * 60.0 / t.a.bpm as f64;
         let phase = ((self.snap.pos[a] - t.a.origin) / spb).rem_euclid(1.0) as f32;
         let pulse = (1.0 - phase).powi(3);
-        let s = if narrow { (w - 60.0).min(330.0) } else { (w * 0.36).min(440.0) };
-        let (ax, ay) = if narrow { ((w - s) / 2.0, HDR + 16.0 - self.scroll) } else { (50.0, HDR + 30.0 - self.scroll) };
+        let s = if narrow { (w - 64.0).min(330.0) } else { (w * 0.36).min(440.0) };
+        let (ax, ay) = if narrow { ((w - s) / 2.0, HDR + 22.0 - self.scroll) } else { (56.0, HDR + 38.0 - self.scroll) };
         let ss = s * (1.0 + 0.018 * pulse);
         rrect(ax - 4.0 - (ss - s) / 2.0, ay - 4.0 - (ss - s) / 2.0 + 14.0, ss + 8.0, ss + 8.0, 18.0, Color::new(accent.r, accent.g, accent.b, 0.12));
         art(ax - (ss - s) / 2.0, ay - (ss - s) / 2.0, ss, t);
-        let (ix, mut iy) = if narrow { (24.0, ay + s + 50.0) } else { (ax + s + 56.0, ay + 20.0) };
-        let iw = if narrow { w - 48.0 } else { w - ix - 40.0 };
+        let (ix, mut iy) = if narrow { (28.0, ay + s + 56.0) } else { (ax + s + 64.0, ay + 24.0) };
+        let iw = if narrow { w - 56.0 } else { w - ix - 44.0 };
         self.tx("genre", &t.genre.to_uppercase(), ix, iy, 20.0, accent);
-        iy += if narrow { 40.0 } else { 58.0 };
+        iy += if narrow { 44.0 } else { 62.0 };
         let title_size = if narrow { 40.0 } else { 58.0 };
         let title = fit(&t.title, title_size, iw);
         self.tx("title", &title, ix, iy, title_size, WHITE);
-        iy += 34.0;
+        iy += 38.0;
         let sub = format!("{}  -  {}", t.artist, t.album);
         self.tx("artist", &fit(&sub, 26.0, iw), ix, iy, 26.0, Color::new(1.0, 1.0, 1.0, 0.7));
-        iy += 22.0;
+        iy += 28.0;
         let mut cx = ix;
         let eff = t.a.bpm * self.snap.rate[a] as f32;
         cx += self.chip(cx, iy, &format!("{:.1} BPM", eff), accent);
@@ -509,37 +511,37 @@ impl App {
         if cx + 120.0 < ix + iw {
             self.chip(cx, iy, &t.mood, accent);
         }
-        iy += 48.0;
+        iy += 52.0;
         let vh = if narrow { 80.0 } else { 110.0 };
         self.draw_visualizer(ix, iy, iw, vh, accent);
         self.mark("visualizer");
-        iy += vh + 22.0;
+        iy += vh + 28.0;
         let liked = self.prof.liked[t.id];
         let disliked = self.prof.disliked[t.id];
         if self.button(ix, iy, 110.0, 34.0, if liked { "Liked" } else { "Like" }, liked, accent) {
             self.prof.like(t);
         }
-        if self.button(ix + 120.0, iy, 120.0, 34.0, if disliked { "Disliked" } else { "Dislike" }, disliked, accent) {
+        if self.button(ix + 122.0, iy, 120.0, 34.0, if disliked { "Disliked" } else { "Dislike" }, disliked, accent) {
             self.prof.dislike(t);
             if !disliked {
                 self.skip();
             }
         }
         let auto = self.set.auto;
-        if self.button(ix + 250.0, iy, 150.0, 34.0, if auto { "DJ MODE: ON" } else { "DJ MODE: OFF" }, auto, accent) {
+        if self.button(ix + 254.0, iy, 150.0, 34.0, if auto { "DJ MODE: ON" } else { "DJ MODE: OFF" }, auto, accent) {
             self.set.auto = !self.set.auto;
             self.dirty = true;
         }
-        iy += 54.0;
+        iy += 60.0;
         self.tx("mood", "LISTENING MODE", ix, iy, 16.0, Color::new(1.0, 1.0, 1.0, 0.5));
-        iy += 12.0;
+        iy += 16.0;
         let mut mx = ix;
         let mut my = iy;
         for m in MOODS {
             let wd = tw(m.name(), 20.0) + 28.0;
             if mx + wd > ix + iw && mx > ix {
                 mx = ix;
-                my += 42.0;
+                my += 44.0;
             }
             let on = self.set.mood == m;
             if self.button(mx, my, wd, 34.0, m.name(), on, hsv(mood_hue(m), 0.5, 1.0)) {
@@ -548,7 +550,7 @@ impl App {
             }
             mx += wd + 8.0;
         }
-        let bottom = my + 60.0;
+        let bottom = my + 68.0;
         self.content_h = bottom + self.scroll - HDR;
         if !self.queue.is_empty() {
             let q = &self.queue[0];
@@ -560,7 +562,7 @@ impl App {
             let why = q.reason.split(" | ").next().unwrap_or("").to_string();
             self.tx("queue", &fit(&line, 20.0, iw - 70.0), ix + 58.0, y + 26.0, 20.0, WHITE);
             draw_text(&fit(&why, 15.0, iw - 70.0), ix + 58.0, y + 46.0, 15.0, Color::new(1.0, 1.0, 1.0, 0.55));
-            self.content_h += 70.0;
+            self.content_h += 74.0;
         }
     }
 
@@ -569,49 +571,49 @@ impl App {
         let lib = self.lib.clone();
         let t = &lib[self.current];
         let accent = self.acc;
-        draw_rectangle(0.0, 0.0, w, HDR, Color::new(0.04, 0.04, 0.06, 1.0));
+        draw_rectangle(0.0, 0.0, w, HDR, Color::new(0.05, 0.042, 0.035, 1.0));
         // Hairline under the header, tinted by the song's colour.
         draw_rectangle(0.0, HDR - 1.0, w, 1.0, Color::new(accent.r, accent.g, accent.b, 0.25));
         let narrow = w < 760.0;
         if let Some(tex) = &self.logo {
             // Soft glow that breathes with the music clock.
             let pulse = 0.5 + 0.5 * (self.time * 2.4).sin();
-            draw_circle(34.0, 30.0, 21.0 + 2.0 * pulse, Color::new(0.93, 0.28, 0.60, 0.10 + 0.08 * pulse));
-            draw_texture_ex(tex, 16.0, 12.0, WHITE, DrawTextureParams { dest_size: Some(vec2(36.0, 36.0)), ..Default::default() });
+            draw_circle(36.0, 34.0, 21.0 + 2.0 * pulse, Color::new(1.0, 0.62, 0.32, 0.10 + 0.08 * pulse));
+            draw_texture_ex(tex, 18.0, 16.0, WHITE, DrawTextureParams { dest_size: Some(vec2(36.0, 36.0)), ..Default::default() });
         }
         if !narrow {
-            draw_text("VIBE CRAFT", 62.0, 37.0, 24.0, WHITE);
-            draw_text(concat!("v", env!("CARGO_PKG_VERSION")), 62.0 + tw("VIBE CRAFT", 24.0) + 8.0, 37.0, 13.0, Color::new(1.0, 1.0, 1.0, 0.35));
+            draw_text("VIBE CRAFT", 66.0, 41.0, 24.0, WHITE);
+            draw_text(concat!("v", env!("CARGO_PKG_VERSION")), 66.0 + tw("VIBE CRAFT", 24.0) + 8.0, 41.0, 13.0, Color::new(1.0, 1.0, 1.0, 0.35));
         }
         if self.loader.is_none() {
             if let Some(st) = self.upd.clone() {
                 let s = st.lock().unwrap().clone();
-                let bx = if narrow { 60.0 } else { 62.0 + tw("VIBE CRAFT", 24.0) + 60.0 };
+                let bx = if narrow { 64.0 } else { 66.0 + tw("VIBE CRAFT", 24.0) + 60.0 };
                 use crate::update::State;
                 match s {
                     State::Available { tag, .. } => {
                         let label = format!("Update available  {}", tag);
-                        if self.pill(bx, 16.0, &label, Color::new(0.13, 0.83, 0.93, 1.0), 0) {
+                        if self.pill(bx, 20.0, &label, Color::new(0.13, 0.83, 0.93, 1.0), 0) {
                             crate::update::install(&st);
                         }
                     }
                     State::Downloading { pct, .. } => {
                         let msg = format!("Updating... {:.0}%", pct * 100.0);
                         let wd = tw(&msg, 17.0) + 24.0;
-                        rrect(bx, 17.0, wd, 26.0, 13.0, Color::new(0.13, 0.83, 0.93, 0.2));
-                        rrect(bx, 17.0, wd * pct.clamp(0.0, 1.0), 26.0, 13.0, Color::new(0.13, 0.83, 0.93, 0.35));
-                        draw_text(&msg, bx + 12.0, 35.0, 17.0, WHITE);
+                        rrect(bx, 21.0, wd, 26.0, 13.0, Color::new(0.13, 0.83, 0.93, 0.2));
+                        rrect(bx, 21.0, wd * pct.clamp(0.0, 1.0), 26.0, 13.0, Color::new(0.13, 0.83, 0.93, 0.35));
+                        draw_text(&msg, bx + 12.0, 39.0, 17.0, WHITE);
                     }
                     State::Ready { tag } => {
                         let label = format!("Restart to finish  {}", tag);
-                        if self.pill(bx, 16.0, &label, Color::new(0.3, 1.0, 0.6, 1.0), 1) {
+                        if self.pill(bx, 20.0, &label, Color::new(0.3, 1.0, 0.6, 1.0), 1) {
                             crate::update::restart();
                         }
                     }
                     State::Failed(e) => {
                         // Only show download/install failures; a failed check stays quiet.
                         if e.starts_with("install:") {
-                            draw_text(&e, bx, 35.0, 16.0, Color::new(1.0, 0.5, 0.5, 0.9));
+                            draw_text(&e, bx, 39.0, 16.0, Color::new(1.0, 0.5, 0.5, 0.9));
                         }
                     }
                     _ => {}
@@ -625,37 +627,37 @@ impl App {
             };
             let msg = if f > 0 { format!("Scanning music {}/{}", d, f) } else { "Scanning music...".to_string() };
             let wd = tw(&msg, 17.0) + 34.0;
-            let bx = if narrow { 60.0 } else { 62.0 + tw("VIBE CRAFT", 24.0) + 60.0 };
-            rrect(bx, 17.0, wd, 26.0, 13.0, Color::new(accent.r, accent.g, accent.b, 0.2));
+            let bx = if narrow { 64.0 } else { 66.0 + tw("VIBE CRAFT", 24.0) + 60.0 };
+            rrect(bx, 21.0, wd, 26.0, 13.0, Color::new(accent.r, accent.g, accent.b, 0.2));
             let pulse = 0.5 + 0.5 * (self.time * 5.0).sin();
-            draw_circle(bx + 14.0, 30.0, 4.0, Color::new(accent.r, accent.g, accent.b, 0.4 + 0.6 * pulse));
-            draw_text(&msg, bx + 24.0, 35.0, 17.0, WHITE);
+            draw_circle(bx + 14.0, 34.0, 4.0, Color::new(accent.r, accent.g, accent.b, 0.4 + 0.6 * pulse));
+            draw_text(&msg, bx + 24.0, 39.0, 17.0, WHITE);
         }
         let names: [&str; 4] = if narrow { ["Now", "DJ", "Queue", "Library"] } else { ["Now Playing", "Smart DJ", "Queue", "Library"] };
-        let mut x = w - 16.0;
+        let mut x = w - 20.0;
         for i in (0..4).rev() {
             let wd = tw(names[i], 20.0) + 30.0;
             x -= wd;
-            if self.button(x, 12.0, wd - 6.0, 36.0, names[i], self.tab == i, accent) {
+            if self.button(x, 16.0, wd - 6.0, 36.0, names[i], self.tab == i, accent) {
                 self.tab = i;
                 self.scroll = 0.0;
             }
         }
         let fy = h - FTR;
-        draw_rectangle(0.0, fy, w, FTR, Color::new(0.04, 0.04, 0.06, 1.0));
+        draw_rectangle(0.0, fy, w, FTR, Color::new(0.05, 0.042, 0.035, 1.0));
         let a = self.snap.active;
         let len = self.snap.len[a].max(1.0);
         let pos_frac = (self.snap.pos[a] / len).clamp(0.0, 1.0) as f32;
-        let px = 24.0;
-        let pw = w - 48.0;
-        rrect(px, fy + 10.0, pw, 6.0, 3.0, Color::new(1.0, 1.0, 1.0, 0.18));
-        rrect(px, fy + 10.0, (pw * pos_frac).max(6.0), 6.0, 3.0, accent);
+        let px = 28.0;
+        let pw = w - 56.0;
+        rrect(px, fy + 16.0, pw, 6.0, 3.0, Color::new(1.0, 1.0, 1.0, 0.18));
+        rrect(px, fy + 16.0, (pw * pos_frac).max(6.0), 6.0, 3.0, accent);
         self.mark("progress");
         if let Some(ar) = &self.armed {
             let m = (ar.trigger / len).clamp(0.0, 1.0) as f32;
-            draw_rectangle(px + pw * m - 1.0, fy + 6.0, 3.0, 14.0, Color::new(0.3, 1.0, 0.6, 0.9));
+            draw_rectangle(px + pw * m - 1.0, fy + 12.0, 3.0, 14.0, Color::new(0.3, 1.0, 0.6, 0.9));
         }
-        if self.click && self.mx >= px && self.mx <= px + pw && self.my >= fy && self.my <= fy + 26.0 {
+        if self.click && self.mx >= px && self.mx <= px + pw && self.my >= fy && self.my <= fy + 30.0 {
             let f = ((self.mx - px) / pw) as f64;
             let mixer = self.mixer.clone();
             let mut m = mixer.lock().unwrap();
@@ -666,16 +668,16 @@ impl App {
             self.dirty = true;
         }
         let secs = (self.snap.pos[a] / SR as f64) as f32;
-        draw_text(&mmss(secs), px, fy + 36.0, 15.0, Color::new(1.0, 1.0, 1.0, 0.6));
+        draw_text(&mmss(secs), px, fy + 42.0, 15.0, Color::new(1.0, 1.0, 1.0, 0.6));
         let tot = mmss((len / SR as f64) as f32);
-        draw_text(&tot, px + pw - tw(&tot, 15.0), fy + 36.0, 15.0, Color::new(1.0, 1.0, 1.0, 0.6));
-        art(24.0, fy + 42.0, 48.0, t);
+        draw_text(&tot, px + pw - tw(&tot, 15.0), fy + 42.0, 15.0, Color::new(1.0, 1.0, 1.0, 0.6));
+        art(28.0, fy + 48.0, 48.0, t);
         if !narrow {
-            draw_text(&fit(&t.title, 20.0, w * 0.25), 82.0, fy + 62.0, 20.0, WHITE);
-            draw_text(&fit(&t.artist, 15.0, w * 0.25), 82.0, fy + 82.0, 15.0, Color::new(1.0, 1.0, 1.0, 0.6));
+            draw_text(&fit(&t.title, 20.0, w * 0.25), 86.0, fy + 68.0, 20.0, WHITE);
+            draw_text(&fit(&t.artist, 15.0, w * 0.25), 86.0, fy + 88.0, 15.0, Color::new(1.0, 1.0, 1.0, 0.6));
         }
         let cx = w / 2.0;
-        let cy = fy + 66.0;
+        let cy = fy + 72.0;
         self.tip(cx - 102.0, cy - 22.0, 44.0, 44.0, "Left arrow");
         self.tip(cx - 22.0, cy - 22.0, 44.0, 44.0, "Space");
         self.tip(cx + 58.0, cy - 22.0, 44.0, 44.0, "Right arrow");
@@ -712,15 +714,15 @@ impl App {
             (false, true) => "dj",
             (false, false) => "DJ off",
         };
-        if self.button(w - 24.0 - bw, cy - 17.0, bw, 34.0, lbl, auto, accent) {
+        if self.button(w - 28.0 - bw, cy - 17.0, bw, 34.0, lbl, auto, accent) {
             self.set.auto = !self.set.auto;
             self.dirty = true;
         }
         if !narrow {
             let mut v = self.snap.master;
-            draw_text("Vol", w - 24.0 - bw - 170.0, cy + 5.0, 16.0, Color::new(1.0, 1.0, 1.0, 0.6));
-            self.tip(w - 24.0 - bw - 140.0, cy - 12.0, 110.0, 24.0, "Up / Down arrow");
-            if self.slider(w - 24.0 - bw - 140.0, cy, 110.0, &mut v, accent) {
+            draw_text("Vol", w - 28.0 - bw - 170.0, cy + 5.0, 16.0, Color::new(1.0, 1.0, 1.0, 0.6));
+            self.tip(w - 28.0 - bw - 140.0, cy - 12.0, 110.0, 24.0, "Up / Down arrow");
+            if self.slider(w - 28.0 - bw - 140.0, cy, 110.0, &mut v, accent) {
                 self.mixer.lock().unwrap().master = v;
             }
         }
@@ -728,7 +730,7 @@ impl App {
         if !self.out_devices.is_empty() {
             let dj_on = !self.dj_name.is_empty();
             let dw = if narrow { 96.0 } else { 120.0 };
-            let dx = if narrow { w - 24.0 - bw - 8.0 - dw } else { w - 24.0 - bw - 180.0 - dw };
+            let dx = if narrow { w - 28.0 - bw - 8.0 - dw } else { w - 28.0 - bw - 180.0 - dw };
             let by = cy - 15.0;
             let label = if dj_on { "Outputs + DJ" } else { "Outputs" };
             if self.button(dx, by, dw, 30.0, label, self.out_menu || dj_on, accent) {
@@ -749,7 +751,7 @@ impl App {
                 let list_h = rh * (nrows + 1) as f32;
                 let total = list_h + rh * 5.0 + 8.0;
                 let my = (fy - 8.0 - total).max(HDR + 4.0);
-                rrect(mx - 4.0, my - 4.0, mw + 8.0, total + 8.0, 10.0, Color::new(0.08, 0.08, 0.1, 0.98));
+                rrect(mx - 4.0, my - 4.0, mw + 8.0, total + 8.0, 10.0, Color::new(0.085, 0.072, 0.06, 0.98));
                 self.menu_rect = (mx - 4.0, my - 4.0, mw + 8.0, total + 8.0);
                 let dim = Color::new(1.0, 1.0, 1.0, 0.45);
                 let mut pick_main: Option<Option<String>> = None;
@@ -853,7 +855,7 @@ impl App {
         for i in 0..n {
             let f = i as f32 / n as f32;
             let k = (1.0 - f).powf(1.5);
-            let c = Color::new(0.03 + self.amb.r * k, 0.03 + self.amb.g * k, 0.045 + self.amb.b * k, 1.0);
+            let c = Color::new(0.035 + self.amb.r * k, 0.028 + self.amb.g * k, 0.024 + self.amb.b * k, 1.0);
             draw_rectangle(0.0, h * f, w, h / n as f32 + 1.0, c);
         }
         self.mx = mouse_position().0;

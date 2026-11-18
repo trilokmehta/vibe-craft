@@ -170,7 +170,7 @@ async fn main() {
     let screenshot = arg("--screenshot");
     let selftest = arg("--self-test");
     let headless = screenshot.is_some() || selftest.is_some();
-    clear_background(Color::new(0.04, 0.04, 0.06, 1.0));
+    clear_background(Color::new(0.05, 0.042, 0.035, 1.0));
     draw_text("Analysing the music library - detecting tempo, key and energy...", 40.0, 80.0, 30.0, WHITE);
     next_frame().await;
     if !headless {
@@ -193,6 +193,10 @@ async fn main() {
         for t in &tv {
             println!("{:6.1} bpm  conf {:4.2}  {}", t.a.bpm, t.a.beat_conf, t.title);
         }
+        std::process::exit(0);
+    }
+    if args.iter().any(|a| a == "--align-test") {
+        dj::align_self_test();
         std::process::exit(0);
     }
     if args.iter().any(|a| a == "--onnx-inspect") {
@@ -377,12 +381,16 @@ async fn main() {
                 let (s0, s1) = ((lead * 100.0) as usize, ((lead + dur as f64) * 100.0) as usize);
                 let s1 = s1.min(oa.len()).min(ob.len());
                 if s1 > s0 + 100 {
+                    // Score only against onsets inside the transition window itself: letting the
+                    // lag reach outside it (into the louder song body before/after the overlap)
+                    // biased the raw dot product toward whichever side had more energy, not
+                    // toward the true phase match.
                     let mut best = (f32::MIN, 0i32);
                     for lag in -25i32..=25 {
                         let mut s = 0f32;
                         for k in s0..s1 {
                             let k2 = k as i32 + lag;
-                            if k2 >= 0 && (k2 as usize) < ob.len() {
+                            if k2 >= s0 as i32 && (k2 as usize) < s1 {
                                 s += oa[k] * ob[k2 as usize];
                             }
                         }
@@ -624,7 +632,7 @@ async fn main() {
             };
             if let Some(m) = msg {
                 boot = Some(t + dt);
-                clear_background(Color::new(0.04, 0.04, 0.06, 1.0));
+                clear_background(Color::new(0.05, 0.042, 0.035, 1.0));
                 let (sw, sh) = (screen_width(), screen_height());
                 if let Some(tex) = &app.logo {
                     draw_texture_ex(tex, sw / 2.0 - 36.0, sh / 2.0 - 110.0, WHITE, DrawTextureParams { dest_size: Some(vec2(72.0, 72.0)), ..Default::default() });

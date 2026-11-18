@@ -798,7 +798,12 @@ pub fn fit_blend_beats(intro_secs: f32, bpm: f32, cap: u32, calm: bool) -> u32 {
 }
 
 /// Onset envelope of `pcm` read from `start` at playback `rate`, on a 5 ms output-time grid.
+/// Low-pass filtered to the kick/bass band (~150 Hz) first: on vocal or acoustic songs the
+/// full-band energy is dominated by strums and singers, which pulls the cross-correlation
+/// in `align_entry` onto the wrong hit; the beat itself lives in the low end.
 fn onset_track(pcm: &[f32], start: f64, rate: f64, steps: usize) -> Vec<f32> {
+    let sr = crate::tracks::SR as f32;
+    let a_lp = 1.0 - (-2.0 * std::f32::consts::PI * 150.0 / sr).exp();
     let h = crate::tracks::SR as f64 / 200.0;
     let mut e = Vec::with_capacity(steps);
     for k in 0..steps {
@@ -808,8 +813,13 @@ fn onset_track(pcm: &[f32], start: f64, rate: f64, steps: usize) -> Vec<f32> {
             e.push(0.0);
             continue;
         }
-        let s: f32 = pcm[a..b].iter().map(|x| x * x).sum::<f32>() / (b - a) as f32;
-        e.push(s.sqrt());
+        let mut lp = 0f32;
+        let mut s = 0f32;
+        for &x in &pcm[a..b] {
+            lp += a_lp * (x - lp);
+            s += lp * lp;
+        }
+        e.push((s / (b - a) as f32).sqrt());
     }
     (0..e.len()).map(|i| if i == 0 { 0.0 } else { (e[i] - e[i - 1]).max(0.0) }).collect()
 }
@@ -850,6 +860,43 @@ mod key_shift_tests {
         assert_eq!(shift_cam((8, 'A'), -1), (1, 'A'));
         assert_eq!(shift_cam((5, 'A'), 2), (7, 'A'));
         assert_eq!(shift_cam((5, 'A'), 0), (5, 'A'));
+    }
+}
+
+/// A click track: short decaying bursts every `beat_secs`, starting at `phase_secs`.
+/// Used by `--align-test` to probe `align_entry` with a known, exact phase offset.
+fn click_track(len_secs: f64, beat_secs: f64, phase_secs: f64) -> Vec<f32> {
+    let sr = crate::tracks::SR as f64;
+    let n = (len_secs * sr) as usize;
+    let mut v = vec![0f32; n];
+    let beat = beat_secs * sr;
+    let mut t = phase_secs * sr;
+    while (t as usize) < n {
+        for k in 0..200usize {
+            let idx = t as usize + k;
+            if idx >= n {
+                break;
+            }
+            v[idx] += (1.0 - k as f32 / 200.0) * 0.8;
+        }
+        t += beat;
+    }
+    v
+}
+
+/// Synthetic check: builds two click tracks with a known phase offset and prints what
+/// `align_entry` recovers, to tell apart an alignment-algorithm bug from a pipeline bug.
+pub fn align_self_test() {
+    let sr = crate::tracks::SR as f64;
+    let beat = 0.5; // 120 BPM
+    let a = click_track(8.0, beat, 0.0);
+    for &true_shift in &[0.02, 0.05, 0.08, 0.12, 0.18, -0.08, -0.18] {
+        let b = click_track(8.0, beat, true_shift);
+        let a_pos = 4.0 * sr;
+        let b_pos = 4.0 * sr;
+        let new_b = align_entry(&a, a_pos, 1.0, &b, b_pos, 1.0, beat, 3.0);
+        let got = (new_b - b_pos) / sr;
+        println!("true shift {:+.3}s -> align_entry recovered {:+.3}s (error {:+.3}s)", true_shift, got, got - true_shift);
     }
 }
 
