@@ -264,12 +264,12 @@ pub fn self_test(lib: &[crate::tracks::Track], n: usize) {
     let (mut ov_old, mut ov_new, mut c_old, mut c_new) = (0f32, 0f32, 0f32, 0f32);
     for w in profs.windows(2) {
         let ((ta, pa), (tb, pb)) = (&w[0], &w[1]);
-        let tbars = 4.0;
         let old = choose_mix(ta, tb, 0.0, 1.0, 16, false, MixOpts::default(), None);
         let new = choose_mix(ta, tb, 0.0, 1.0, 16, false, MixOpts::default(), Some((pa, pb)));
         println!("\n{} -> {}", ta.title, tb.title);
         for (label, c) in [("old", &old), ("new", &new)] {
             if let Some(c) = c {
+                let tbars = c.beats as f64 / 4.0;
                 let ov = overlap(pa, c.out_pos, pb, c.in_pos, tbars);
                 let (cv, _) = continuity(pa, c.out_pos, pb, c.in_pos, tbars);
                 println!("  {}: {}\n       vocal-overlap bars {:.0}/4, vibe match {:.0}%", label, c.why, ov, cv * 100.0);
@@ -593,9 +593,13 @@ pub fn render_test(lib: &[crate::tracks::Track], pairs: usize) {
         let ((ta, sa, pa, pcm_a), (tb, sb, pb, pcm_b)) = (&w[0], &w[1]);
         let rate = ta.a.bpm as f64 / tb.a.bpm as f64;
         let matched = (rate.ln()).abs() < 0.16;
-        let (style, beats) = if matched { (Style::Blend, 32u32) } else { (Style::Fade, 0) };
-        let dur = if matched { beats as f32 * 60.0 / ta.a.bpm } else { 12.0 };
+        let (style, mut beats) = if matched { (Style::Blend, 32u32) } else { (Style::Fade, 0) };
+        let mut dur = if matched { beats as f32 * 60.0 / ta.a.bpm } else { 12.0 };
         let Some(c) = choose_mix(ta, tb, 0.0, 1.0, beats.max(16), false, MixOpts::default(), Some((pa, pb))) else { continue };
+        if matched && c.beats != beats {
+            beats = c.beats;
+            dur = beats as f32 * 60.0 / ta.a.bpm;
+        }
         let t_bars = if matched { beats as f32 / 4.0 } else { dur * ta.a.bpm / 240.0 };
         let (sc, desc) = script(pa, c.out_pos, pb, c.in_pos, t_bars, matched);
         println!("\n#{} {} -> {}\n   {}\n   {}", n + 1, ta.title, tb.title, c.why, desc);

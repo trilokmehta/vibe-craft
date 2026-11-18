@@ -490,6 +490,7 @@ pub struct MixPoint {
 pub struct MixChoice {
     pub out_pos: f64,
     pub in_pos: f64,
+    pub beats: u32,
     pub why: String,
 }
 
@@ -636,14 +637,33 @@ fn nearest_level(points: &[MixPoint], pos: f64) -> f32 {
     points.iter().min_by(|a, b| (a.pos - pos).abs().partial_cmp(&(b.pos - pos).abs()).unwrap()).map(|p| p.lvl).unwrap_or(0.7)
 }
 
-/// AutoMix: looks through the whole of both songs for the best pair of
-/// (exit point, entry point) at or after `pos`. A section chosen by the
-/// person limits where the outgoing song may be left and where the next one starts.
-pub fn choose_mix(ta: &Track, tin: &Track, pos: f64, rate: f64, beats: u32, calm: bool, opts: MixOpts, vp: Option<(&crate::vibe::Profile, &crate::vibe::Profile)>) -> Option<MixChoice> {
+/// Blend lengths (beats) tried in addition to the caller's own `beats`, when they fit
+/// under its cap. `choose_mix` scores every one of them, so a length that gives a worse
+/// (exit, entry) pair loses to a length that gives a better one, instead of the length
+/// being fixed before any point is looked at.
+const BEAT_OPTIONS: [u32; 4] = [8, 16, 24, 32];
+/// How much a transition's own length (long when clean, short when busy) can move its
+/// score, relative to the point-placement terms above (roughly LENGTH_WEIGHT in automix).
+const LENGTH_WEIGHT: f32 = 0.3;
+
+/// AutoMix: looks through the whole of both songs for the best (exit point, entry
+/// point, length) for a transition at or after `pos`. `beats_cap` is the longest blend
+/// the caller allows (the style/intensity rules pick this); shorter lengths are tried
+/// too and may win when they fit the music better. A section chosen by the person
+/// limits where the outgoing song may be left and where the next one starts.
+pub fn choose_mix(ta: &Track, tin: &Track, pos: f64, rate: f64, beats_cap: u32, calm: bool, opts: MixOpts, vp: Option<(&crate::vibe::Profile, &crate::vibe::Profile)>) -> Option<MixChoice> {
+    let mut lengths: Vec<u32> = BEAT_OPTIONS.iter().copied().filter(|&b| b <= beats_cap).collect();
+    if !lengths.contains(&beats_cap) {
+        lengths.push(beats_cap);
+    }
+    if lengths.is_empty() {
+        lengths.push(beats_cap.max(1));
+    }
+    let max_bars = (lengths.iter().copied().max().unwrap_or(1) as f32 / 4.0).max(1.0);
+
     let sr = crate::tracks::SR as f64;
     let ba = bar_len(ta);
     let bb = bar_len(tin);
-    let trans_bars = (beats as f64 / 4.0).ceil().max(1.0);
     let earliest = pos + 3.0 * sr * rate;
     let len_a = ta.samples() as f64;
     let len_b = tin.samples() as f64;
@@ -673,68 +693,76 @@ pub fn choose_mix(ta: &Track, tin: &Track, pos: f64, rate: f64, beats: u32, calm
         outs = v;
     }
     let limited = opts.out_limit.is_some() || opts.force_out.is_some() || win.is_some();
-    let mut best: Option<(f32, MixPoint, MixPoint, String)> = None;
-    for o in &outs {
-        if win.is_none() && o.pos < earliest && opts.force_out.is_none() {
-            continue;
-        }
-        if win.is_none() && opts.force_out.is_none() && o.pos + trans_bars * ba > a_end + ba {
-            continue;
-        }
-        if let Some(lim) = opts.out_limit {
-            if o.pos + trans_bars * ba > lim + 0.5 * ba {
+    let mut best: Option<(f32, MixPoint, MixPoint, u32, String)> = None;
+    for &beats in &lengths {
+        let trans_bars = (beats as f64 / 4.0).ceil().max(1.0);
+        for o in &outs {
+            if win.is_none() && o.pos < earliest && opts.force_out.is_none() {
                 continue;
             }
-        }
-        let ob = vp.map(|(pa, _)| crate::vibe::out_bonus(pa, o.pos, trans_bars));
-        let mut tpen = 0.0f32;
-        if !limited {
-            tpen = 0.9 * (1.0 - (o.pos / (0.7 * len_a)).min(1.0)) as f32;
-            if o.pos < min_pos {
-                tpen += 1.0;
-            }
-            // The layer bonuses can add up to ~3 points; without this an attractive early
-            // spot could cut a song short. Play at least ~55% of the song on its own.
-            // Club pacing (training sets: songs play ~40 s, 15-27% of their length) when the
-            // transition is short and punchy; long calm blends keep more of the song.
-            let keep = if calm || beats >= 32 { 0.55 } else { 0.3 };
-            if vp.is_some() && o.pos < keep * a_end {
+            if win.is_none() && opts.force_out.is_none() && o.pos + trans_bars * ba > a_end + ba {
                 continue;
             }
-        } else if let Some(lim) = opts.out_limit {
-            // inside a chosen section prefer leaving as late as the section allows
-            tpen = 0.8 * ((lim - o.pos) / (lim.max(1.0))).clamp(0.0, 1.0) as f32;
-        }
-        for n in &ins {
-            if opts.force_in.is_none() && n.pos + (trans_bars + 4.0) * bb > b_end {
-                continue;
-            }
-            let lvl_cont = 1.0 - (o.lvl - n.lvl).abs().min(1.0);
-            let (cont, vibe_why) = match vp {
-                Some((pa, pb)) => {
-                    let (ib, iw) = crate::vibe::in_bonus(pb, n.pos, trans_bars);
-                    let (ow, oww) = ob.unwrap();
-                    let (c, cw) = crate::vibe::continuity(pa, o.pos, pb, n.pos, trans_bars);
-                    (0.3 * lvl_cont + 1.4 * c + ow + ib, format!("; {}, {}; {}", oww, iw, cw))
+            if let Some(lim) = opts.out_limit {
+                if o.pos + trans_bars * ba > lim + 0.5 * ba {
+                    continue;
                 }
-                None => (0.8 * lvl_cont, String::new()),
-            };
-            let mut s = o.score * if calm && o.kind == "outro" { 1.3 } else { 1.0 } + n.score * if calm && n.kind == "opening" { 1.4 } else { 1.0 } + cont - tpen;
-            if !calm && n.kind != "opening" {
-                s += 0.15;
             }
-            if opts.force_in.is_none() {
-                let skipped = ((n.pos - tin.a.origin) / len_b.max(1.0)) as f32;
-                s -= 0.6 * skipped * if calm { 1.5 } else { 1.0 };
+            let ob = vp.map(|(pa, _)| crate::vibe::out_bonus(pa, o.pos, trans_bars));
+            let mut tpen = 0.0f32;
+            if !limited {
+                tpen = 0.9 * (1.0 - (o.pos / (0.7 * len_a)).min(1.0)) as f32;
+                if o.pos < min_pos {
+                    tpen += 1.0;
+                }
+                // The layer bonuses can add up to ~3 points; without this an attractive early
+                // spot could cut a song short. Play at least ~55% of the song on its own.
+                // Club pacing (training sets: songs play ~40 s, 15-27% of their length) when the
+                // transition is short and punchy; long calm blends keep more of the song.
+                let keep = if calm || beats >= 32 { 0.55 } else { 0.3 };
+                if vp.is_some() && o.pos < keep * a_end {
+                    continue;
+                }
+            } else if let Some(lim) = opts.out_limit {
+                // inside a chosen section prefer leaving as late as the section allows
+                tpen = 0.8 * ((lim - o.pos) / (lim.max(1.0))).clamp(0.0, 1.0) as f32;
             }
-            if best.as_ref().map(|b| s > b.0).unwrap_or(true) {
-                best = Some((s, o.clone(), n.clone(), vibe_why));
+            for n in &ins {
+                if opts.force_in.is_none() && n.pos + (trans_bars + 4.0) * bb > b_end {
+                    continue;
+                }
+                let lvl_cont = 1.0 - (o.lvl - n.lvl).abs().min(1.0);
+                let (cont, vibe_why) = match vp {
+                    Some((pa, pb)) => {
+                        let (ib, iw) = crate::vibe::in_bonus(pb, n.pos, trans_bars);
+                        let (ow, oww) = ob.unwrap();
+                        let (c, cw) = crate::vibe::continuity(pa, o.pos, pb, n.pos, trans_bars);
+                        (0.3 * lvl_cont + 1.4 * c + ow + ib, format!("; {}, {}; {}", oww, iw, cw))
+                    }
+                    None => (0.8 * lvl_cont, String::new()),
+                };
+                let mut s = o.score * if calm && o.kind == "outro" { 1.3 } else { 1.0 } + n.score * if calm && n.kind == "opening" { 1.4 } else { 1.0 } + cont - tpen;
+                if !calm && n.kind != "opening" {
+                    s += 0.15;
+                }
+                if opts.force_in.is_none() {
+                    let skipped = ((n.pos - tin.a.origin) / len_b.max(1.0)) as f32;
+                    s -= 0.6 * skipped * if calm { 1.5 } else { 1.0 };
+                }
+                // Both tracks loud through the overlap (crowded) favours a short
+                // transition; both quiet (clean) can afford a long one.
+                let crowded = (0.5 * (o.lvl + n.lvl)).clamp(0.0, 1.0);
+                s += LENGTH_WEIGHT * (trans_bars as f32 / max_bars) * (1.0 - 2.0 * crowded);
+                if best.as_ref().map(|b| s > b.0).unwrap_or(true) {
+                    best = Some((s, o.clone(), n.clone(), beats, vibe_why));
+                }
             }
         }
     }
-    best.map(|(_, o, n, vw)| MixChoice {
+    best.map(|(_, o, n, beats, vw)| MixChoice {
         out_pos: o.pos,
         in_pos: n.pos,
+        beats,
         why: format!("leaves {} at {} ({}), enters {} at {} ({}){}", ta.title, clock(o.pos), o.kind, tin.title, clock(n.pos), n.kind, vw),
     })
 }

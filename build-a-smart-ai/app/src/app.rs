@@ -449,7 +449,7 @@ impl App {
             && self.profiles.iter().any(|p| p.0 == cur)
             && self.profiles.iter().any(|p| p.0 == nt);
         // Tempos too far apart to beat-match: a long, smooth crossfade (like AutoMix), not an echo cut.
-        let (style, beats, in_rate) = if !auto || !grid_ok || (!matched && !classic) {
+        let (style, mut beats, in_rate) = if !auto || !grid_ok || (!matched && !classic) {
             (Style::Fade, 0u32, 1.0)
         } else if !matched {
             (Style::EchoOut, 8, 1.0)
@@ -475,7 +475,7 @@ impl App {
                 (Style::Blend, bi.min(16), r)
             }
         };
-        let dur = if style == Style::Fade {
+        let mut dur = if style == Style::Fade {
             if force {
                 3.0
             } else {
@@ -485,7 +485,7 @@ impl App {
         } else {
             beats as f32 * 60.0 / out_eff.max(40.0)
         };
-        let l_trk = if style == Style::Fade { dur as f64 * sr * rate } else { beats as f64 * spb };
+        let mut l_trk = if style == Style::Fade { dur as f64 * sr * rate } else { beats as f64 * spb };
         let (trigger, mut in_pos, mut why) = if force {
             let t = if style != Style::Fade {
                 let b = next_boundary(origin, 4.0 * spb, pos + 0.35 * sr * rate);
@@ -518,6 +518,13 @@ impl App {
             };
             choose_mix(ta, tin, pos, rate, beats, calm, opts, vp)
         } {
+            // The search may have found a better fit at a different blend length than
+            // the one picked above; adopt it so the rest of the plan matches.
+            if c.beats != beats {
+                beats = c.beats;
+                dur = beats as f32 * 60.0 / out_eff.max(40.0);
+                l_trk = beats as f64 * spb;
+            }
             (c.out_pos, c.in_pos, if quick { format!("auto mix, best spot in the next 10 s: {}", c.why) } else { c.why })
         } else if quick {
             let b = next_boundary(origin, 4.0 * spb, pos + 2.0 * sr * rate);

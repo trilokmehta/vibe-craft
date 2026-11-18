@@ -8,7 +8,7 @@ No original product exists to measure; every value is a design choice from the r
 | Analysis | onset hop 64 samples at 22050 Hz | estimated |
 | Mixing | tempo-match limit +/-8% (half/double time allowed) | estimated |
 | Mixing | phrase = 16 beats, bar = 4 beats | musical convention |
-| Mixing | blend length 8/16/32 beats by intensity (calm moods min 16) | estimated |
+| Mixing | blend length 8/16/32 beats by intensity (calm moods min 16), capped length also sets which shorter lengths AutoMix's point search is allowed to try and score against it | estimated |
 | Mixing | EQ crossover 250 Hz / 2.5 kHz, bass swap at 50% of blend | estimated |
 | Mixing | echo = dotted eighth, feedback 0.5, ping-pong | estimated |
 | Mixing | tempo returns to normal after a mix at 0.4% per second | estimated |
