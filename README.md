@@ -1,8 +1,8 @@
 # Vibe Craft
 
-An AI DJ for Windows that plays your own music library and mixes song to song like a DJ does.
+A DJ for Windows that plays your own music library and mixes song to song like a DJ does.
 
-It analyses every song for tempo, key and energy, picks what to play next, and blends the songs together. When it can, it does this **layer by layer**: an AI model splits each song into vocals, melody, music, bass and drums, so the transition brings in the next song's beats first, then swaps the bass, crosses over the instruments and leaves the vocals for last.
+It analyses every song for tempo, key and energy, picks what to play next, and blends the songs together. When it can, it does this **layer by layer**: a separation model splits each song into vocals, melody, music, bass and drums, so the transition brings in the next song's beats first, then swaps the bass, crosses over the instruments and leaves the vocals for last.
 
 Built in Rust with [macroquad](https://github.com/not-fl3/macroquad), [cpal](https://github.com/RustAudio/cpal), [symphonia](https://github.com/pdeljanov/Symphonia) and [ONNX Runtime](https://onnxruntime.ai/).
 
@@ -19,7 +19,7 @@ The app updates itself: when a newer release is out, an **Update** button appear
 - **Your music:** choose any folder with MP3, WAV, FLAC or OGG files. Everything is analysed on your computer.
 - **Auto DJ:** picks the next song by tempo, key, energy, mood and what you like or skip.
 - **AutoMix:** finds the best place to leave the playing song and enter the next one: phrase ends, instrumental stretches, build-ups.
-- **AI layer separation:** HT-Demucs splits songs into Vocals, Melody (guitar + piano), Music (synths, strings, pads), Bass and Drums. You can turn each layer up or down, or use the Instrumental and Acapella presets.
+- **Layer separation:** HT-Demucs splits songs into Vocals, Melody (guitar + piano), Music (synths, strings, pads), Bass and Drums. You can turn each layer up or down, or use the Instrumental and Acapella presets.
 - **Layered transitions:** beats → bass swap → instruments and melody → vocals. The order adapts when the next song opens with instruments, when the melodies' notes clash, or when tempos can't be matched. A safeguard prevents quiet gaps.
 - **Beat matching:** songs within about 16% of each other's tempo are time-stretched (pitch kept) and lined up on the beat.
 - **Layer timeline:** the Smart DJ screen shows each layer fading out and in while a mix runs.
@@ -43,7 +43,7 @@ Everything lives in `%LOCALAPPDATA%\VibeCraft`:
 
 | Folder | What | Size |
 |---|---|---|
-| `models` | AI separation model, downloaded once | ~136 MB (+ ~136 MB for the GPU split) |
+| `models` | separation model, downloaded once | ~136 MB (+ ~136 MB for the GPU split) |
 | `runtime` | ONNX Runtime for GPU separation | ~16 MB |
 | `stems` | Separated layers, one file per song | ~64 MB per song, capped at 3 GB |
 
