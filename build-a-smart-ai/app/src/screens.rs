@@ -193,7 +193,7 @@ impl App {
             }
             mxp += wd + 6.0;
         }
-        let ch = 40.0 + 46.0 + 16.0 + mrows * 36.0 + 3.0 * 46.0 + 38.0 + 4.0;
+        let ch = 40.0 + 46.0 + 16.0 + mrows * 36.0 + 3.0 * 46.0 + 38.0 + 54.0 + 4.0;
         rrect(rx, ry0, rw, ch, 14.0, Color::new(1.0, 1.0, 1.0, 0.05));
         self.tx("controls", "DJ CONTROLS", rx + 16.0, ry0 + 26.0, 16.0, accent);
         let mut ry = ry0 + 40.0;
@@ -262,6 +262,18 @@ impl App {
         }
         let hint = fit("music > melody > drums+bass > vocals", 14.0, (sw - sw.min(240.0) - 12.0).max(40.0));
         draw_text(&hint, rx + 16.0 + sw.min(240.0) + 12.0, ry + 12.0, 14.0, Color::new(1.0, 1.0, 1.0, 0.5));
+        ry += 38.0;
+        draw_text("TRANSITION WEIGHTS", rx + 16.0, ry + 8.0, 14.0, Color::new(1.0, 1.0, 1.0, 0.5));
+        ry += 16.0;
+        let half = (sw - 6.0) / 2.0;
+        if self.button(rx + 16.0, ry, half, 30.0, "Profile 1", self.set.profile == TransitionProfile::V1, accent) {
+            self.set.profile = TransitionProfile::V1;
+            self.rebuild_queue();
+        }
+        if self.button(rx + 16.0 + half + 6.0, ry, half, 30.0, "Profile 2", self.set.profile == TransitionProfile::V2, accent) {
+            self.set.profile = TransitionProfile::V2;
+            self.rebuild_queue();
+        }
         ry += 38.0;
         let mut v = self.set.discovery;
         draw_text(&format!("Familiar {:.0}%  <->  Discovery {:.0}%", (1.0 - v) * 100.0, v * 100.0), rx + 16.0, ry, 16.0, WHITE);

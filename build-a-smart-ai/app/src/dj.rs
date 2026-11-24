@@ -68,6 +68,31 @@ impl Mood {
     }
 }
 
+/// Which set of learned transition weights `score_candidate` uses when picking the next track.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum TransitionProfile {
+    /// Fitted on the training DJ sets (55+ real transitions): tempo matters most.
+    V1,
+    /// Fitted on a second training mix (4 real transitions): leans on dance-closeness.
+    V2,
+}
+
+impl TransitionProfile {
+    pub fn name(&self) -> &'static str {
+        match self {
+            TransitionProfile::V1 => "Profile 1",
+            TransitionProfile::V2 => "Profile 2",
+        }
+    }
+    /// (tempo-fit, key-fit, dance-closeness, energy-closeness)
+    pub fn weights(&self) -> (f32, f32, f32, f32) {
+        match self {
+            TransitionProfile::V1 => (3.0, 0.9, 0.7, 1.4),
+            TransitionProfile::V2 => (0.0, 0.0, 6.0, 0.0),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct Settings {
     pub auto: bool,
@@ -78,11 +103,12 @@ pub struct Settings {
     pub discovery: f32,
     /// Layer build: the next song enters in stages (music, melody, drums + bass, vocals).
     pub layer_build: bool,
+    pub profile: TransitionProfile,
 }
 
 impl Settings {
     pub fn new() -> Settings {
-        Settings { auto: true, mood: Mood::Party, energy: 0.5, genre: None, intensity: 0.5, discovery: 0.35, layer_build: false }
+        Settings { auto: true, mood: Mood::Party, energy: 0.5, genre: None, intensity: 0.5, discovery: 0.35, layer_build: false, profile: TransitionProfile::V1 }
     }
     pub fn target_energy(&self) -> f32 {
         (self.mood.base_energy() + (self.energy - 0.5) * 0.8).clamp(0.05, 1.0)
@@ -305,6 +331,7 @@ pub fn score_candidate(
 ) -> Pick {
     let mut reasons: Vec<String> = Vec::new();
     let mut score = 0f32;
+    let (w_tempo, w_key, w_dance, w_energy) = set.profile.weights();
     let target = set.target_energy();
     let mut tgt_now = target;
     if let Some(c) = cur {
@@ -312,8 +339,8 @@ pub fn score_candidate(
         tgt_now = c.energy + (target - c.energy).clamp(-step, step);
         let out_eff = cur_eff_bpm.unwrap_or(c.a.bpm);
         let (r, mult, ts) = tempo_match(out_eff, cand);
-        // weights fitted on the training DJ sets (55+ real transitions): tempo matters most
-        score += 3.0 * ts;
+        // weights fitted on the training DJ sets: tempo matters most on profile 1
+        score += w_tempo * ts;
         if ts > 0.0 {
             let pct = (r - 1.0) * 100.0;
             reasons.push(format!(
@@ -327,7 +354,7 @@ pub fn score_candidate(
             reasons.push(format!("tempo gap {:.0} -> {:.0} BPM, will use an echo transition", out_eff, cand.a.bpm));
         }
         let ks = key_score(c, cand);
-        score += 0.9 * ks;
+        score += w_key * ks;
         if ks >= 0.85 {
             reasons.push(format!("harmonic match {} -> {}", camelot_str(c.a.key, c.a.minor), camelot_str(cand.a.key, cand.a.minor)));
         } else if ks >= 0.5 {
@@ -335,10 +362,10 @@ pub fn score_candidate(
         } else {
             reasons.push(format!("key change {} -> {}", camelot_str(c.a.key, c.a.minor), camelot_str(cand.a.key, cand.a.minor)));
         }
-        score += 0.7 * (1.0 - (cand.dance - c.dance).abs());
+        score += w_dance * (1.0 - (cand.dance - c.dance).abs());
     }
     let es = (1.0 - (cand.energy - tgt_now).abs() * 2.5).clamp(0.0, 1.0);
-    score += 1.4 * es;
+    score += w_energy * es;
     if let Some(c) = cur {
         let dir = if cand.energy > c.energy + 0.04 {
             "building"
