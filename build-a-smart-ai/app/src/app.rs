@@ -164,6 +164,8 @@ pub struct App {
     /// Live mix: zoomed beat view on/off and its width in seconds.
     pub zoom: bool,
     pub zoom_secs: f32,
+    /// Beat Zoom: per-song low/mid/high peaks per BAND_BLOCK samples, computed once.
+    pub band_cache: std::collections::HashMap<usize, std::sync::Arc<Vec<[f32; 3]>>>,
     /// Knob being dragged: (key x, key y, mouse y at grab, value at grab).
     pub knob_grab: Option<(i32, i32, f32, f32)>,
     /// Where the zoom view was drawn last frame (the mouse wheel zooms there instead of scrolling).
@@ -267,6 +269,7 @@ impl App {
             drift_t: 0.0,
             zoom: false,
             zoom_secs: 4.0,
+            band_cache: std::collections::HashMap::new(),
             knob_grab: None,
             zoom_rect: (0.0, 0.0, 0.0, 0.0),
             drag: None,
@@ -391,7 +394,7 @@ impl App {
         // 1.3: below this the beat grid is usually wrong (measured on a real folk library).
         let grid_ok = ta.a.beat_conf >= 1.3 && tin.a.beat_conf >= 1.3;
         let matched = auto && grid_ok && ts > 0.0;
-        // Key shift (ported from automix): move the next song up or down by up to 2 semitones
+        // Key shift (ported from automix): move the next song up or down by up to 1 semitone
         // when that turns a clash into a match. It keeps that pitch for the rest of the song.
         let (key_shift, ks) = if CLASSIC_AUTOMIX.load(std::sync::atomic::Ordering::Relaxed) || !self.set.auto {
             (0, key_score_shifted(ta, cur_shift, tin, 0))
@@ -420,8 +423,8 @@ impl App {
         let out_limit = if classic { sec_cur.map(|s| s.1) } else { Some(sec_cur.map(|s| s.1).unwrap_or(f64::MAX).min(a_fade)) };
         let out_window = if quick { Some((pos + 1.5 * sr * rate, pos + 10.0 * sr * rate)) } else { None };
         let out_limit = if quick { None } else { out_limit };
-        let opts = MixOpts { force_out: self.forced_out.filter(|f| f.0 == cur && f.1 > pos).map(|f| f.1), force_in: sec_next.map(|s| s.0), out_limit, out_window };
-        let calm = self.set.mood.calm();
+        let opts = MixOpts { force_out: self.forced_out.filter(|f| f.0 == cur && f.1 > pos).map(|f| f.1), force_in: sec_next.map(|s| s.0), out_limit, out_window, after_melody: self.set.profile.after_melody(), club: !self.set.smooth };
+        let calm = self.set.smooth;
         let mut bi: u32 = if self.set.intensity < 0.34 {
             32
         } else if self.set.intensity < 0.67 {

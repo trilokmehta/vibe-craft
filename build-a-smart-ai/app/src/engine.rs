@@ -235,9 +235,11 @@ impl Reverb {
     }
 }
 
-const WN: usize = 1024;
-const WH: usize = 512;
-const WS: isize = 48;
+// Stretcher window ~70 ms with a +-11 ms splice search (was 46 ms / +-2 ms): finds a much
+// better waveform match, so sustained notes and voices stop warbling under tempo changes.
+const WN: usize = 1536;
+const WH: usize = 768;
+const WS: isize = 240;
 
 fn at(p: &[f32], i: isize) -> f32 {
     if i < 0 || i as usize >= p.len() {

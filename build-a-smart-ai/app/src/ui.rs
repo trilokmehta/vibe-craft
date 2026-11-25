@@ -107,7 +107,21 @@ fn with_font<R>(size: f32, g: impl FnOnce(Option<&Font>) -> R) -> R {
 }
 
 /// Drop-in replacement for macroquad's draw_text that uses the UI font.
+/// Fullwidth punctuation (common in video titles) is missing from the UI font and would draw
+/// as empty boxes: map it to the plain ASCII character.
+fn plain(s: &str) -> std::borrow::Cow<'_, str> {
+    if s.chars().all(|c| !('\u{FF01}'..='\u{FF5E}').contains(&c) && c != '\u{3000}') {
+        return std::borrow::Cow::Borrowed(s);
+    }
+    std::borrow::Cow::Owned(s.chars().map(|c| match c {
+        '\u{3000}' => ' ',
+        '\u{FF01}'..='\u{FF5E}' => char::from_u32(c as u32 - 0xFEE0).unwrap_or(c),
+        _ => c,
+    }).collect())
+}
+
 pub fn draw_text(s: &str, x: f32, y: f32, size: f32, c: Color) -> TextDimensions {
+    let s = &*plain(s);
     with_font(size, |f| {
         let fs = (size * 0.86).round() as u16;
         draw_text_ex(s, x.round(), y.round(), TextParams { font: f, font_size: fs, color: c, ..Default::default() })
@@ -116,6 +130,7 @@ pub fn draw_text(s: &str, x: f32, y: f32, size: f32, c: Color) -> TextDimensions
 
 /// Drop-in replacement for macroquad's measure_text that uses the UI font.
 pub fn measure_text(s: &str, _f: Option<&Font>, size: u16, scale: f32) -> TextDimensions {
+    let s = &*plain(s);
     with_font(size as f32, |f| macroquad::text::measure_text(s, f, (size as f32 * 0.86).round() as u16, scale))
 }
 

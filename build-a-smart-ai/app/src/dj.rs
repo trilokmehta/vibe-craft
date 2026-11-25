@@ -68,30 +68,35 @@ impl Mood {
     }
 }
 
-/// Which set of learned transition weights `score_candidate` uses when picking the next track.
+/// Learned transition weights `score_candidate` uses when picking the next track.
+/// One merged profile, fitted on every training mix (training 1 to 11) pooled together.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum TransitionProfile {
-    /// Fitted on the training DJ sets (55+ real transitions): tempo matters most.
-    V1,
-    /// Fitted on a second training mix (4 real transitions): leans on dance-closeness.
-    V2,
+    Merged,
 }
 
 impl TransitionProfile {
     pub fn name(&self) -> &'static str {
-        match self {
-            TransitionProfile::V1 => "Profile 1",
-            TransitionProfile::V2 => "Profile 2",
-        }
+        "Merged DJ profile"
     }
     /// (tempo-fit, key-fit, dance-closeness, energy-closeness)
     pub fn weights(&self) -> (f32, f32, f32, f32) {
-        match self {
-            TransitionProfile::V1 => (3.0, 0.9, 0.7, 1.4),
-            TransitionProfile::V2 => (0.0, 0.0, 6.0, 0.0),
-        }
+        MERGED_WEIGHTS
+    }
+    /// Pro DJs (and the training DJs, nearly every song) bring the next song in after its melody starts.
+    pub fn after_melody(&self) -> bool {
+        true
+    }
+    /// (low, mid, high) balance-closeness weights.
+    pub fn band_weights(&self) -> (f32, f32, f32) {
+        MERGED_BANDS
     }
 }
+
+/// Pooled fit over all training mixes (see training_all.txt).
+/// 156 real transitions from 244 songs; fits them better than any single-mix profile did (loglik -2.46 vs -2.54..-2.91).
+const MERGED_WEIGHTS: (f32, f32, f32, f32) = (3.70, 1.16, 0.17, 0.54);
+const MERGED_BANDS: (f32, f32, f32) = (0.0, 0.0, 0.43);
 
 #[derive(Clone)]
 pub struct Settings {
@@ -104,11 +109,14 @@ pub struct Settings {
     /// Layer build: the next song enters in stages (music, melody, drums + bass, vocals).
     pub layer_build: bool,
     pub profile: TransitionProfile,
+    /// Transition feel: DJ = club pacing (short, punchy, songs left early like the training DJs);
+    /// Smooth = long calm blends that let songs play most of the way.
+    pub smooth: bool,
 }
 
 impl Settings {
     pub fn new() -> Settings {
-        Settings { auto: true, mood: Mood::Party, energy: 0.5, genre: None, intensity: 0.5, discovery: 0.35, layer_build: false, profile: TransitionProfile::V1 }
+        Settings { auto: true, mood: Mood::Party, energy: 0.5, genre: None, intensity: 0.5, discovery: 0.35, layer_build: false, profile: TransitionProfile::Merged, smooth: false }
     }
     pub fn target_energy(&self) -> f32 {
         (self.mood.base_energy() + (self.energy - 0.5) * 0.8).clamp(0.05, 1.0)
@@ -270,14 +278,14 @@ pub fn key_score_shifted(a: &Track, shift_a: i32, b: &Track, shift_b: i32) -> f3
 }
 
 /// Biggest key shift of the next song (voices sound unnatural beyond this).
-pub const MAX_KEY_SHIFT: i32 = 2;
+pub const MAX_KEY_SHIFT: i32 = 1;
 /// Each semitone of shift costs this much score, so a song is shifted only when it clearly helps.
 const KEY_SHIFT_PENALTY: f32 = 0.05;
-const KEY_SHIFT_MIN_GAIN: f32 = 0.2;
+const KEY_SHIFT_MIN_GAIN: f32 = 0.3;
 /// Both key detections must be at least this sure before a song is shifted (a wrong key would detune it).
-const KEY_SHIFT_MIN_CONF: f32 = 0.05;
+const KEY_SHIFT_MIN_CONF: f32 = 0.12;
 
-/// Key shift (semitones, -2..2) for `b` so it follows `a` (already shifted by `shift_a`) better,
+/// Key shift (semitones, -1..1) for `b` so it follows `a` (already shifted by `shift_a`) better,
 /// and the key score after the shift. 0 unless it clearly helps. Ported from automix.
 pub fn best_key_shift(a: &Track, shift_a: i32, b: &Track) -> (i32, f32) {
     let plain = key_score_shifted(a, shift_a, b, 0);
@@ -285,7 +293,7 @@ pub fn best_key_shift(a: &Track, shift_a: i32, b: &Track) -> (i32, f32) {
         return (0, plain);
     }
     let (mut best, mut best_value, mut best_score) = (0, plain, plain);
-    for sh in [1, -1, 2, -2] {
+    for sh in [1, -1] {
         let sc = key_score_shifted(a, shift_a, b, sh);
         let v = sc - KEY_SHIFT_PENALTY * sh.abs() as f32;
         if v > best_value + 1e-6 {
@@ -363,6 +371,13 @@ pub fn score_candidate(
             reasons.push(format!("key change {} -> {}", camelot_str(c.a.key, c.a.minor), camelot_str(cand.a.key, cand.a.minor)));
         }
         score += w_dance * (1.0 - (cand.dance - c.dance).abs());
+        let (wl, wm, wh) = set.profile.band_weights();
+        if wl + wm + wh > 0.0 {
+            let (sa, sb) = (band_shares(c), band_shares(cand));
+            score += wl * (1.0 - (sa[0] - sb[0]).abs() * 2.5).max(0.0)
+                + wm * (1.0 - (sa[1] - sb[1]).abs() * 2.5).max(0.0)
+                + wh * (1.0 - (sa[2] - sb[2]).abs() * 5.0).max(0.0);
+        }
     }
     let es = (1.0 - (cand.energy - tgt_now).abs() * 2.5).clamp(0.0, 1.0);
     score += w_energy * es;
@@ -583,7 +598,8 @@ pub fn out_points(t: &Track) -> Vec<MixPoint> {
         } else {
             "phrase end"
         };
-        let phrase = if (i - fb) % 8 == 0 { 0.2 } else { 0.0 };
+        // pro DJs mix on phrase lines: 8 bars good, 16/32-bar phrase starts better
+        let phrase = if (i - fb) % 16 == 0 { 0.35 } else if (i - fb) % 8 == 0 { 0.2 } else { 0.0 };
         let score = 0.9 * drop + 0.4 * vf + phrase + if end { 0.6 } else { 0.0 };
         v.push(MixPoint { pos: t.a.origin + i as f64 * ba, score, kind, lvl: ep / level });
         i += 4;
@@ -615,7 +631,7 @@ pub fn in_points(t: &Track) -> Vec<MixPoint> {
         } else {
             "section start"
         };
-        v.push(MixPoint { pos: t.a.origin + j as f64 * ba, score: 0.5 * rise + start + 0.4 * vf + if (j - fb) % 8 == 0 { 0.2 } else { 0.0 }, kind, lvl: en / level });
+        v.push(MixPoint { pos: t.a.origin + j as f64 * ba, score: 0.5 * rise + start + 0.4 * vf + if (j - fb) % 16 == 0 { 0.35 } else if (j - fb) % 8 == 0 { 0.2 } else { 0.0 }, kind, lvl: en / level });
         j += 4;
     }
     v
@@ -624,6 +640,32 @@ pub fn in_points(t: &Track) -> Vec<MixPoint> {
 fn clock(samples: f64) -> String {
     let s = (samples / crate::tracks::SR as f64).max(0.0) as u32;
     format!("{}:{:02}", s / 60, s % 60)
+}
+
+/// (low, mid, high) energy shares of a track, from its analysis.
+pub fn band_shares(t: &Track) -> [f32; 3] {
+    let hi = t.a.bright * t.a.bright;
+    let mid = t.a.vocal * t.a.vocal;
+    [(1.0 - hi - mid).max(0.0), mid, hi]
+}
+
+/// Sample position where a track's melody (mid band) comes in, as measured by the trainer:
+/// the first bar whose mid band reaches 55% of its typical level.
+pub fn melody_onset(t: &Track) -> f64 {
+    let end = t.a.last_bar.min(t.a.bars.len());
+    let mut v: Vec<f32> = (t.a.first_bar..end).map(|b| t.a.bars[b][2]).collect();
+    if v.is_empty() {
+        return t.a.origin;
+    }
+    v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let typ = v[v.len() * 6 / 10];
+    let bar = bar_len(t);
+    for b in t.a.first_bar..end {
+        if t.a.bars[b][2] >= 0.55 * typ {
+            return t.a.origin + b as f64 * bar;
+        }
+    }
+    t.a.origin
 }
 
 /// Person's choices that override the automatic search.
@@ -636,6 +678,12 @@ pub struct MixOpts {
     /// Quick auto mix: the outgoing song must be left inside this window (start, end) in samples;
     /// every bar line in it is a candidate.
     pub out_window: Option<(f64, f64)>,
+    /// Profile 3: the DJs in the third training mix came in after the melody had started
+    /// (18 of 20 songs, median ~3 bars after), so entries before it are penalised.
+    pub after_melody: bool,
+    /// DJ feel: aim to leave the outgoing song around where the training DJs did (about 2.5 min
+    /// before its end, ~45 s of play) instead of letting it play out.
+    pub club: bool,
 }
 
 /// The most useful exit points of a song (any location), in time order.
@@ -672,6 +720,8 @@ const BEAT_OPTIONS: [u32; 4] = [8, 16, 24, 32];
 /// How much a transition's own length (long when clean, short when busy) can move its
 /// score, relative to the point-placement terms above (roughly LENGTH_WEIGHT in automix).
 const LENGTH_WEIGHT: f32 = 0.3;
+/// Penalty for both songs carrying lead vocals through the overlap.
+const VOCAL_CLASH_WEIGHT: f32 = 0.9;
 
 /// AutoMix: looks through the whole of both songs for the best (exit point, entry
 /// point, length) for a transition at or after `pos`. `beats_cap` is the longest blend
@@ -719,6 +769,9 @@ pub fn choose_mix(ta: &Track, tin: &Track, pos: f64, rate: f64, beats_cap: u32, 
         }
         outs = v;
     }
+    let melody_in = melody_onset(tin);
+    let (_, med_a) = track_levels(ta);
+    let (_, med_b) = track_levels(tin);
     let limited = opts.out_limit.is_some() || opts.force_out.is_some() || win.is_some();
     let mut best: Option<(f32, MixPoint, MixPoint, u32, String)> = None;
     for &beats in &lengths {
@@ -739,6 +792,11 @@ pub fn choose_mix(ta: &Track, tin: &Track, pos: f64, rate: f64, beats_cap: u32, 
             let mut tpen = 0.0f32;
             if !limited {
                 tpen = 0.9 * (1.0 - (o.pos / (0.7 * len_a)).min(1.0)) as f32;
+                if opts.club {
+                    // training DJs left songs with ~156 s unplayed (median), never before ~50 s in
+                    let target = (len_a - 156.0 * sr).max(50.0 * sr).min(0.6 * len_a);
+                    tpen = 1.4 * ((o.pos - target).abs() / (45.0 * sr)).min(1.5) as f32;
+                }
                 if o.pos < min_pos {
                     tpen += 1.0;
                 }
@@ -746,7 +804,7 @@ pub fn choose_mix(ta: &Track, tin: &Track, pos: f64, rate: f64, beats_cap: u32, 
                 // spot could cut a song short. Play at least ~55% of the song on its own.
                 // Club pacing (training sets: songs play ~40 s, 15-27% of their length) when the
                 // transition is short and punchy; long calm blends keep more of the song.
-                let keep = if calm || beats >= 32 { 0.55 } else { 0.3 };
+                let keep = if opts.club { 0.15 } else if calm || beats >= 32 { 0.55 } else { 0.3 };
                 if vp.is_some() && o.pos < keep * a_end {
                     continue;
                 }
@@ -759,6 +817,18 @@ pub fn choose_mix(ta: &Track, tin: &Track, pos: f64, rate: f64, beats_cap: u32, 
                     continue;
                 }
                 let lvl_cont = 1.0 - (o.lvl - n.lvl).abs().min(1.0);
+                // Two lead vocals at once is the classic clash pro DJs avoid: EQ cannot make two
+                // lyrics readable, so overlaps where both songs sing are marked down.
+                let vclash = if opts.force_in.is_none() && opts.force_out.is_none() {
+                    let ob0 = ((o.pos - ta.a.origin) / ba) as isize;
+                    let nb0 = ((n.pos - tin.a.origin) / bb) as isize;
+                    let tb = trans_bars as isize;
+                    let va = (mean_vocal(&ta.a.bars, ob0, ob0 + tb) / med_a).clamp(0.0, 2.0);
+                    let vb = (mean_vocal(&tin.a.bars, nb0, nb0 + tb) / med_b).clamp(0.0, 2.0);
+                    ((va - 0.8).max(0.0) * (vb - 0.8).max(0.0)).min(1.0)
+                } else {
+                    0.0
+                };
                 let (cont, vibe_why) = match vp {
                     Some((pa, pb)) => {
                         let (ib, iw) = crate::vibe::in_bonus(pb, n.pos, trans_bars);
@@ -768,9 +838,12 @@ pub fn choose_mix(ta: &Track, tin: &Track, pos: f64, rate: f64, beats_cap: u32, 
                     }
                     None => (0.8 * lvl_cont, String::new()),
                 };
-                let mut s = o.score * if calm && o.kind == "outro" { 1.3 } else { 1.0 } + n.score * if calm && n.kind == "opening" { 1.4 } else { 1.0 } + cont - tpen;
+                let mut s = -VOCAL_CLASH_WEIGHT * vclash + o.score * if calm && o.kind == "outro" { 1.3 } else { 1.0 } + n.score * if calm && n.kind == "opening" { 1.4 } else { 1.0 } + cont - tpen;
                 if !calm && n.kind != "opening" {
                     s += 0.15;
+                }
+                if opts.after_melody && opts.force_in.is_none() && n.pos + 1.0 * bb < melody_in {
+                    s -= 0.8;
                 }
                 if opts.force_in.is_none() {
                     let skipped = ((n.pos - tin.a.origin) / len_b.max(1.0)) as f32;

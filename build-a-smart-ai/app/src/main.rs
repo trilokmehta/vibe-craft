@@ -1,6 +1,7 @@
 #![windows_subsystem = "windows"]
 
 mod app;
+mod backtest;
 mod dj;
 mod engine;
 mod screens;
@@ -180,6 +181,10 @@ async fn main() {
                 *tracks::CHOSEN_DIR.lock().unwrap() = Some(p);
             }
         }
+    }
+    if let Some(b) = arg("--backtest") {
+        backtest::run(std::path::Path::new(&b));
+        std::process::exit(0);
     }
     if args.iter().any(|a| a == "--lib-stats") {
         let dir = tracks::find_default_music().unwrap_or_else(|| std::path::PathBuf::from("music"));

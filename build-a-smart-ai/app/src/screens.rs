@@ -193,88 +193,23 @@ impl App {
             }
             mxp += wd + 6.0;
         }
-        let ch = 40.0 + 46.0 + 16.0 + mrows * 36.0 + 3.0 * 46.0 + 38.0 + 54.0 + 4.0;
+        let _ = mrows;
+        let ch = 150.0;
         rrect(rx, ry0, rw, ch, 14.0, Color::new(1.0, 1.0, 1.0, 0.05));
         self.tx("controls", "DJ CONTROLS", rx + 16.0, ry0 + 26.0, 16.0, accent);
         let mut ry = ry0 + 40.0;
         // one row: Auto DJ | genre | pro decks
         let third = (sw - 12.0) / 3.0;
-        let auto = self.set.auto;
-        if self.button(rx + 16.0, ry, third, 34.0, if auto { "AUTO DJ  ON" } else { "AUTO DJ  OFF" }, auto, accent) {
-            self.set.auto = !self.set.auto;
-            self.dirty = true;
-        }
-        let gl = self.set.genre.clone().unwrap_or_else(|| "Any genre".to_string());
-        if self.button(rx + 16.0 + third + 6.0, ry, third, 34.0, &gl, self.set.genre.is_some(), accent) {
-            let idx = match &self.set.genre {
-                None => 0,
-                Some(g) => self.genres.iter().position(|x| x == g).map(|p| p + 1).unwrap_or(0),
-            };
-            self.set.genre = if idx < self.genres.len() { Some(self.genres[idx].clone()) } else { None };
-            self.rebuild_queue();
-        }
-        if self.button(rx + 16.0 + 2.0 * (third + 6.0), ry, third, 34.0, if adv { "Hide pro decks" } else { "Pro decks" }, adv, accent) {
-            self.advanced = !self.advanced;
-        }
-        ry += 46.0;
-        draw_text("MOOD", rx + 16.0, ry + 8.0, 14.0, Color::new(1.0, 1.0, 1.0, 0.5));
-        ry += 16.0;
-        let mut mx = rx + 16.0;
-        for m in MOODS {
-            let wd = tw(m.name(), 18.0) + 22.0;
-            if mx + wd > rx + rw - 16.0 {
-                mx = rx + 16.0;
-                ry += 36.0;
-            }
-            let on = self.set.mood == m;
-            if self.button(mx, ry, wd, 30.0, m.name(), on, hsv(mood_hue(m), 0.5, 1.0)) {
-                self.set.mood = m;
-                self.rebuild_queue();
-            }
-            mx += wd + 6.0;
-        }
-        ry += 36.0 + 12.0;
-        let mut v = self.set.energy;
-        draw_text(&format!("Energy: {:.0}%  (target {:.0}%)", v * 100.0, self.set.target_energy() * 100.0), rx + 16.0, ry, 16.0, WHITE);
-        if self.slider(rx + 16.0, ry + 12.0, sw, &mut v, accent) {
-            self.set.energy = v;
-            self.rebuild_queue();
-        }
-        ry += 46.0;
-        let mut v = self.set.intensity;
-        let iname = if v < 0.34 {
-            "long & smooth"
-        } else if v < 0.67 {
-            "balanced"
-        } else {
-            "short & punchy"
-        };
-        draw_text(&format!("Transition intensity: {}", iname), rx + 16.0, ry, 16.0, WHITE);
-        if self.slider(rx + 16.0, ry + 12.0, sw, &mut v, accent) {
-            self.set.intensity = v;
-            self.dirty = true;
-        }
-        ry += 46.0;
-        let lb_label = if self.set.layer_build { "Layer build: ON" } else { "Layer build: off" };
-        if self.button(rx + 16.0, ry - 8.0, sw.min(240.0), 30.0, lb_label, self.set.layer_build, accent) {
-            self.set.layer_build = !self.set.layer_build;
-            self.dirty = true;
-        }
-        let hint = fit("music > melody > drums+bass > vocals", 14.0, (sw - sw.min(240.0) - 12.0).max(40.0));
-        draw_text(&hint, rx + 16.0 + sw.min(240.0) + 12.0, ry + 12.0, 14.0, Color::new(1.0, 1.0, 1.0, 0.5));
-        ry += 38.0;
-        draw_text("TRANSITION WEIGHTS", rx + 16.0, ry + 8.0, 14.0, Color::new(1.0, 1.0, 1.0, 0.5));
-        ry += 16.0;
+        let _ = third;
+        draw_text(&format!("{}: learned from all 11 training mixes", self.set.profile.name()), rx + 16.0, ry + 20.0, 16.0, WHITE);
         let half = (sw - 6.0) / 2.0;
-        if self.button(rx + 16.0, ry, half, 30.0, "Profile 1", self.set.profile == TransitionProfile::V1, accent) {
-            self.set.profile = TransitionProfile::V1;
-            self.rebuild_queue();
+        for (k, name) in ["DJ  (short, punchy)", "Smooth  (long, calm)"].into_iter().enumerate() {
+            let want_smooth = k == 1;
+            if self.button(rx + 16.0 + k as f32 * (half + 6.0), ry + 32.0, half, 28.0, name, self.set.smooth == want_smooth, accent) {
+                self.set.smooth = want_smooth;
+            }
         }
-        if self.button(rx + 16.0 + half + 6.0, ry, half, 30.0, "Profile 2", self.set.profile == TransitionProfile::V2, accent) {
-            self.set.profile = TransitionProfile::V2;
-            self.rebuild_queue();
-        }
-        ry += 38.0;
+        ry += 74.0;
         let mut v = self.set.discovery;
         draw_text(&format!("Familiar {:.0}%  <->  Discovery {:.0}%", (1.0 - v) * 100.0, v * 100.0), rx + 16.0, ry, 16.0, WHITE);
         if self.slider(rx + 16.0, ry + 12.0, sw, &mut v, accent) {

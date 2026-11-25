@@ -33,3 +33,40 @@ Retrained 2026-11-19 (`trainer match` -> `segments` -> `fit`, 40/702 training so
 | Transition tricks | short punchy mixes, loops, echo / reverb throws | new styles: Loop roll (1 bar -> 1/8 then drop on the one), Reverb wash; party sets rotate Blend / Filter+Echo (Loop roll is switched off in `app.rs`, `LOOP_ROLL_AUTO`, because it sounded like a stuck loop), key clashes alternate Echo out / Reverb wash |
 
 Note: this run's regression over the weights (`trainer fit`) only had 7 real transitions to learn from, too few to trust - it collapsed onto "dance-closeness only" (`learned (scaled): [0.00, 0.00, 0.00, 5.70]` vs the hand-tuned `[2.2, 1.6, 1.4, 0.5]`). The engine weights above were left as-is; only the timing/entry/tempo/Camelot habit numbers were refreshed from this run. Full output: `training 1/results/fit.txt`.
+
+## Profile 3 (training 5, 2026-11-26)
+
+Third mix (`training 5`, 20 of 27 songs located, 13 usable transitions; `trainer profile3` -> `training 5/results/profile3.txt`):
+
+| Habit seen | Value | In the engine |
+|---|---|---|
+| Learned weights (tempo, key, energy, dance, low, mid, high balance) | raw [1.48, -0.38, 0.32, -0.53, -0.04, -0.03, -0.04]; scaled to 6: tempo 4.9, energy 1.1, rest ~0 | Profile 3 = tempo 4.9, key 0.3, energy 1.1, dance 0; band balance (low/mid/high closeness 0.3/0.3/0.1) added by hand because the fit found no real pull either way (13 cases) |
+| Mix balance | songs play at ~56% low / 42% mid / 2% high; across a hand-over lows drop ~3%, mids rise ~3% | not modelled beyond the closeness terms |
+| Where the DJ comes in | median 3.2 bars after the melody starts, only 2/20 before it; ~18 s after the first sound | Profile 3 penalises entry points more than a bar before the melody onset |
+| Where the DJ leaves | 20/20 before the outro, median ~77 bars early (songs play ~40-60 s) | unchanged |
+
+Profile 3 retrained 2026-11-26 with a second mix (`training 6`, 12 of 18 songs located, 8 transitions; `training 6/results/profile3.txt`): learned tempo 5.9 / energy 0 / dance 0.1 (scaled to 6), bands again ~0. Combined with training 5 by transition count (13 + 8): **tempo 5.3, energy 0.65, key 0.3 (hand), dance 0**; band terms unchanged. The DJ again came in after the melody (11 of 12; median 8.6 bars after it, ~25 s after first sound) and left every song before its outro (median ~107 s of the song unplayed). Mix balance 63% low / 35% mid / 2% high.
+
+## Profiles 4-6 (2026-11-26)
+
+One profile per training mix (`trainer profile3`; weights scaled to total 6; key 0.3 hand-set on 4; band terms 0 because the fit never found a pull):
+
+| Profile | Mix | Located / transitions | tempo | key | dance | energy | Notes |
+|---|---|---|---|---|---|---|---|
+| 4 | training 7 | 33 of 49 / 11 | 5.2 | 0.3 | 0 | 0.8 | DJ in 6.9 bars after melody, left 24/24 before outro |
+| 5 | training 8 | 25 of 31 / 16 | 1.5 | 3.4 | 0 | 1.1 | key-led; mix 55/42/3 low/mid/high |
+| 6 | training 9 | 22 of 24 / 16 | 3.1 | 2.6 | 0.1 | 0 | tempo and key about equal; DJ in 9.6 bars after melody |
+
+Profiles 3-6 all use the "enter after the melody" rule (54 of 57 songs across the mixes did).
+
+## Not turned into profiles (2026-11-26)
+
+- `training 10` (club / Jersey-club edits): 20 of 30 songs located but only 3 usable transitions, so the weight fit is noise (raw [1.7, -0.2, 1.3, -0.9, 1.4, 1.5, -0.1]). Habits were consistent with the other mixes: entered after the melody 15/15 (median 14 bars after), left before the outro 15/15, mix balance 79% low / 20% mid / 1% high.
+- `training 11` (DJ NYK remixes): only 2 of 6 songs located, 0 transitions - the remixed versions could not be downloaded as separate tracks.
+
+## Merged DJ profile (all training mixes)
+Profiles 1-6 are replaced by one profile fitted on training 1-11 pooled (156 transitions, 244 songs;
+`trainer pooled`, output in `training_all.txt`): tempo 3.70, key 1.16, energy 0.54, dance 0.17, high-band balance 0.43.
+Entry comes after the melody (225 of 244 songs did). Researched pro-DJ rules added to AutoMix:
+16/32-bar phrase starts score higher than 8-bar ones, and overlaps where both songs carry lead vocals are penalised.
+The engine's bass swap (one track owns the lows) was already in place.

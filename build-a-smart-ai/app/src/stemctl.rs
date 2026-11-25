@@ -173,7 +173,9 @@ impl App {
         let mixer = self.mixer.clone();
         let a = self.snap.active;
         let decks = [a, 1 - a];
-        let h = 62.0 + 2.0 * 140.0;
+        // Knobs need 140 px per song; plain status text (layers off / separating) only 56.
+        let rows: [f32; 2] = [0, 1].map(|n| if self.snap.stems[decks[n]] { 140.0 } else { 56.0 });
+        let h = 62.0 + rows[0] + rows[1];
         rrect(x, y, w, h, 14.0, Color::new(1.0, 1.0, 1.0, 0.05));
         self.tx("layers", "LAYERS", x + 16.0, y + 26.0, 16.0, accent);
         let on = self.use_stems;
@@ -258,7 +260,7 @@ impl App {
                     rrect(x + 16.0, yy + 42.0, ((w - 32.0) * p as f32 / 100.0).max(8.0), 8.0, 4.0, accent);
                 }
             }
-            yy += 140.0;
+            yy += rows[n];
         }
         h
     }

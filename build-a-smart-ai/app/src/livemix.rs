@@ -71,6 +71,9 @@ impl App {
         let mw = (w - 32.0).min(380.0);
         let mx0 = x + 16.0;
         let ph = if self.snap.playing[inn] && self.snap.playing[a] { self.snap.phase_ms[inn] } else { None };
+        draw_text("LOW", x + w - 250.0, y + 56.0, 12.0, Color::new(0.25, 0.5, 1.0, 1.0));
+        draw_text("MID", x + w - 205.0, y + 56.0, 12.0, Color::new(0.3, 0.9, 0.4, 1.0));
+        draw_text("HIGH", x + w - 160.0, y + 56.0, 12.0, Color::new(1.0, 0.45, 0.85, 1.0));
         draw_text("PHASE", mx0, my + 5.0, 13.0, Color::new(1.0, 1.0, 1.0, 0.5));
         let bx = mx0 + 52.0;
         let bwid = mw - 52.0;
@@ -117,7 +120,6 @@ impl App {
                 }
             };
             let tr = &lib[t];
-            let tint = hsv(warm_hue(tr.hue), 0.55, 1.0);
             let rate = self.snap.rate[d].max(0.1);
             let live = row == 0 || self.snap.playing[d];
             let mut center = if live { self.snap.pos[d] } else { self.armed.as_ref().filter(|ar| ar.track == t).map(|ar| ar.in_pos).unwrap_or(tr.a.origin) };
@@ -156,7 +158,14 @@ impl App {
             let s0 = center - span / 2.0;
             let cols = ((lw / 2.0) as usize).max(16);
             let per = span / cols as f64;
-            let step = ((per / 48.0) as usize).max(1);
+            let bands = match self.band_cache.get(&t) {
+                Some(b) if b.len() * BAND_BLOCK + BAND_BLOCK >= pcm.len() => b.clone(),
+                _ => {
+                    let b = std::sync::Arc::new(band_peaks(&pcm));
+                    self.band_cache.insert(t, b.clone());
+                    b
+                }
+            };
             // Bars sit on a fixed grid in song time and slide by the sub-column remainder,
             // so they do not shimmer while the view moves.
             let s0q = (s0 / per).floor() * per;
@@ -167,19 +176,29 @@ impl App {
                 if i0 >= i1 {
                     continue;
                 }
-                let mut pk = 0f32;
-                let mut i = i0;
-                while i < i1 {
-                    pk = pk.max(pcm[i].abs());
-                    i += step;
+                // Three bands from the per-song cache (computed once, not every frame).
+                let (b0, b1) = (i0 / BAND_BLOCK, ((i1 + BAND_BLOCK - 1) / BAND_BLOCK).min(bands.len()));
+                let (mut pl, mut pm, mut ph) = (0f32, 0f32, 0f32);
+                for bb in &bands[b0.min(b1)..b1] {
+                    pl = pl.max(bb[0]);
+                    pm = pm.max(bb[1]);
+                    ph = ph.max(bb[2]);
                 }
-                let bh = ((pk * tr.a.gain).min(1.0) * lane * 0.92).max(1.0);
-                let alpha = if a0 < center { 0.45 } else { 0.85 };
+                let g = tr.a.gain;
+                let hl = ((pl * g).min(1.0) * lane * 0.92).max(1.0);
+                let hm = ((pm * g * 1.2).min(1.0) * lane * 0.92).max(1.0);
+                let hh = ((ph * g * 2.0).min(1.0) * lane * 0.92).max(1.0);
+                let alpha = if a0 < center { 0.5 } else { 0.95 };
                 let bx = lx + c as f32 * lw / cols as f32 - shift;
                 let bwid = (lw / cols as f32 - 0.5).max(1.0);
                 let (x0, x1) = (bx.max(lx), (bx + bwid).min(lx + lw));
                 if x1 > x0 {
-                    draw_rectangle(x0, wy + (lane - bh) / 2.0, x1 - x0, bh, Color::new(tint.r, tint.g, tint.b, alpha));
+                    // tallest first so every band stays visible
+                    let mut bars = [(hl, Color::new(0.25, 0.5, 1.0, alpha)), (hm, Color::new(0.3, 0.9, 0.4, alpha)), (hh, Color::new(1.0, 0.45, 0.85, alpha))];
+                    bars.sort_by(|p, q| q.0.partial_cmp(&p.0).unwrap());
+                    for (bh, col) in bars {
+                        draw_rectangle(x0, wy + (lane - bh) / 2.0, x1 - x0, bh, col);
+                    }
                 }
             }
             // Beat grid: bars bright with their number, beats faint.
@@ -284,4 +303,27 @@ impl App {
         }
         h
     }
+}
+
+/// Samples per cached band-peak block.
+const BAND_BLOCK: usize = 64;
+
+/// Low / mid / high peak per block (one-pole splits at 250 Hz and 3.4 kHz).
+fn band_peaks(pcm: &[f32]) -> Vec<[f32; 3]> {
+    let ka1 = 1.0 - (-2.0 * std::f32::consts::PI * 250.0 / SR as f32).exp();
+    let ka2 = 1.0 - (-2.0 * std::f32::consts::PI * 3400.0 / SR as f32).exp();
+    let (mut f1, mut f2) = (0f32, 0f32);
+    pcm.chunks(BAND_BLOCK)
+        .map(|ch| {
+            let mut p = [0f32; 3];
+            for &x in ch {
+                f1 += ka1 * (x - f1);
+                f2 += ka2 * (x - f2);
+                p[0] = p[0].max(f1.abs());
+                p[1] = p[1].max((f2 - f1).abs());
+                p[2] = p[2].max((x - f2).abs());
+            }
+            p
+        })
+        .collect()
 }
