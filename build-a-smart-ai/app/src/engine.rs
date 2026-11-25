@@ -771,7 +771,7 @@ impl Mixer {
                 // Headphone feed = (main mix, in Main-mix mode) + any DJ-only decks.
                 let g = (self.dj_vol / self.master.max(0.1)).min(8.0); // independent of the audience volume
                 let (ml, mr) = if self.dj_mix { (l * g, r * g) } else { (0.0, 0.0) };
-                let c = (self.cue_feed * self.dj_vol * 0.9).tanh();
+                let c = soft_limit(self.cue_feed * self.dj_vol);
                 self.mon.push_back((ml + c, mr + c));
             }
             for c in 0..channels {
@@ -850,7 +850,7 @@ impl Mixer {
                 0.0
             };
             self.cue_pos += inc;
-            let v = (v * 0.9).tanh();
+            let v = soft_limit(v);
             for c in 0..ch {
                 out[f * ch + c] = if c < 2 { v } else { 0.0 };
             }
@@ -1250,8 +1250,8 @@ impl Mixer {
         let ra = mono + (er * 0.8 + rr) * self.master;
         self.lpo[0] += self.lpa * (la - self.lpo[0]);
         self.lpo[1] += self.lpa * (ra - self.lpo[1]);
-        let l = (self.lpo[0] * 0.9).tanh();
-        let r = (self.lpo[1] * 0.9).tanh();
+        let l = soft_limit(self.lpo[0]);
+        let r = soft_limit(self.lpo[1]);
         // metering + continuity check
         self.peak_seen = self.peak_seen.max(l.abs());
         let j = (l - self.last).abs();
@@ -1644,4 +1644,18 @@ pub fn apply_script(sc: &Script, x: f32, o: &mut TP, i: &mut TP) {
     i.gain = 1.0;
     // A filter sweep or echo on the way out still works on top of the layers.
     i.filt = 1.0;
+}
+
+/// Output limiter. Completely clean (no change) up to 0.6, then a smooth knee that tops out at 1.0.
+/// The old `tanh(0.9 x)` bent the signal from about 0.3 upward, which made loud songs, and two
+/// songs overlapping in a blend, sound crunchy and distorted.
+#[inline]
+pub fn soft_limit(x: f32) -> f32 {
+    const T: f32 = 0.6;
+    let a = x.abs();
+    if a <= T {
+        x
+    } else {
+        x.signum() * (T + (1.0 - T) * ((a - T) / (1.0 - T)).tanh())
+    }
 }
