@@ -306,10 +306,10 @@ impl App {
 }
 
 /// Samples per cached band-peak block.
-const BAND_BLOCK: usize = 64;
+pub(crate) const BAND_BLOCK: usize = 64;
 
 /// Low / mid / high peak per block (one-pole splits at 250 Hz and 3.4 kHz).
-fn band_peaks(pcm: &[f32]) -> Vec<[f32; 3]> {
+pub(crate) fn band_peaks(pcm: &[f32]) -> Vec<[f32; 3]> {
     let ka1 = 1.0 - (-2.0 * std::f32::consts::PI * 250.0 / SR as f32).exp();
     let ka2 = 1.0 - (-2.0 * std::f32::consts::PI * 3400.0 / SR as f32).exp();
     let (mut f1, mut f2) = (0f32, 0f32);

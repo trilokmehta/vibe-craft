@@ -79,6 +79,12 @@ pub struct TP {
     pub stem: [f32; NL],
 }
 
+impl Default for TP {
+    fn default() -> TP {
+        TP::neutral()
+    }
+}
+
 impl TP {
     pub fn neutral() -> TP {
         TP { gain: 1.0, low: 1.0, mid: 1.0, high: 1.0, filt: 1.0, echo: 0.0, rev: 0.0, stem: [1.0; NL] }
@@ -1169,6 +1175,23 @@ impl Mixer {
         if let Some(t) = self.trans.as_mut() {
             t.ramp = Some((ro, r1));
         }
+    }
+
+    /// What the running transition is doing to each deck right now (neutral when none).
+    pub fn live_tp(&self) -> [TP; 2] {
+        let mut tp = [TP::neutral(), TP::neutral()];
+        if let Some(t) = self.trans {
+            let x = t.elapsed as f32 / t.total.max(1) as f32;
+            let (mut o, mut i) = trans_params(t.style, x);
+            if let Some(sc) = t.script {
+                if self.decks[t.out].stems.is_some() && self.decks[t.inn].stems.is_some() {
+                    apply_script(&sc, x, &mut o, &mut i);
+                }
+            }
+            tp[t.out] = o;
+            tp[t.inn] = i;
+        }
+        tp
     }
 
     fn frame(&mut self) -> (f32, f32) {

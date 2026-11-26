@@ -376,7 +376,7 @@ impl App {
     }
 
 
-    fn pro_decks(&mut self, x: f32, y: f32, w: f32) -> f32 {
+    pub(crate) fn pro_decks(&mut self, x: f32, y: f32, w: f32) -> f32 {
         let lib = self.lib.clone();
         let mixer = self.mixer.clone();
         let narrow = w < 900.0;

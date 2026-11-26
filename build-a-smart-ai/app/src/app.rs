@@ -85,6 +85,8 @@ pub struct Snap {
     /// Beat offset of each deck to the other one (ms), for the phase meter.
     pub phase_ms: [Option<f32>; 2],
     pub pcm: [Option<std::sync::Arc<Vec<f32>>>; 2],
+    /// Live transition automation per deck (EQ, filter, echo, volume, layers).
+    pub tp: [crate::engine::TP; 2],
 }
 
 #[derive(Clone)]
@@ -166,6 +168,11 @@ pub struct App {
     pub zoom_secs: f32,
     /// Beat Zoom: per-song low/mid/high peaks per BAND_BLOCK samples, computed once.
     pub band_cache: std::collections::HashMap<usize, std::sync::Arc<Vec<[f32; 3]>>>,
+    /// Decks screen: smoothed playhead per deck (track, position) so the scrolling wave never stutters.
+    pub wave_pos: [(Option<usize>, f64); 2],
+    /// Decks screen: seconds shown across the scrolling waves, and where they were drawn (wheel zooms there).
+    pub wave_secs: f32,
+    pub wave_rect: (f32, f32, f32, f32),
     /// Knob being dragged: (key x, key y, mouse y at grab, value at grab).
     pub knob_grab: Option<(i32, i32, f32, f32)>,
     /// Where the zoom view was drawn last frame (the mouse wheel zooms there instead of scrolling).
@@ -270,6 +277,9 @@ impl App {
             zoom: false,
             zoom_secs: 4.0,
             band_cache: std::collections::HashMap::new(),
+            wave_pos: [(None, 0.0); 2],
+            wave_secs: 12.0,
+            wave_rect: (0.0, 0.0, 0.0, 0.0),
             knob_grab: None,
             zoom_rect: (0.0, 0.0, 0.0, 0.0),
             drag: None,
@@ -543,6 +553,17 @@ impl App {
             }
             (p, in_default, "mixing at the end of the song".to_string())
         };
+        // Do not throw away the last seconds: when the mix would finish just before the outgoing
+        // song's real last sound (its last bar line or the start of its fade), stretch the mix so
+        // the old song plays out to the end under the new one.
+        if !force && !quick && !classic && sec_cur.is_none() {
+            let left = audible_end(ta) - (trigger + l_trk);
+            if left > 0.05 * sr && left <= 6.0 * sr * rate {
+                dur += (left / (sr * rate)) as f32;
+                l_trk += left;
+                why = format!("{}; plays the last {:.1} s of {} to the end", why, left / (sr * rate), ta.title);
+            }
+        }
         // Shared word: when both songs' words are known, enter the next song at a word that
         // matches (or rhymes with) the one the outgoing singer ends the phrase on.
         if WORD_MIX && !classic && !force && !quick && sec_next.is_none() && matches!(style, Style::Blend | Style::FilterEcho) && beats > 0 {
@@ -813,6 +834,7 @@ impl App {
             s.trim[d] = m.decks[d].trim;
             s.fader[d] = m.decks[d].fader;
         }
+        s.tp = m.live_tp();
         s.trans = m.trans.map(|t| (t.elapsed as f32 / t.total as f32, t.style, t.out, t.inn));
         s.paused = m.paused || (!m.decks[m.active].playing && m.trans.is_none());
         s.master = m.master;
@@ -1079,4 +1101,20 @@ impl App {
             mixer.lock().unwrap().nudge_phase(inn, off * 0.5);
         }
     }
+}
+
+/// Where a song's audio really ends: the last moment that is not near-silence.
+fn audible_end(t: &Track) -> f64 {
+    let p = &t.a.peaks;
+    let len = t.samples() as f64;
+    if p.is_empty() {
+        return len;
+    }
+    let max = p.iter().fold(0f32, |m, &v| m.max(v));
+    let thr = (max * 0.04).max(1e-4);
+    let mut k = p.len();
+    while k > 0 && p[k - 1] < thr {
+        k -= 1;
+    }
+    (k as f64 * len / p.len() as f64).min(len)
 }

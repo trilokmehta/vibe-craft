@@ -2,6 +2,7 @@
 
 mod app;
 mod backtest;
+mod decks;
 mod dj;
 mod engine;
 mod screens;
@@ -608,7 +609,7 @@ async fn main() {
         app.begin_scan();
     }
     if let Some(t) = arg("--tab").and_then(|s| s.parse::<usize>().ok()) {
-        app.tab = t.min(3);
+        app.tab = t.min(4);
     }
     let mut frame: u32 = 0;
     let mut steps: Vec<Step> = Vec::new();
@@ -763,7 +764,7 @@ async fn main() {
         }
         if let Some(path) = &selftest {
             if frame % 12 == 0 && frame < 300 {
-                app.tab = (app.tab + 1) % 4;
+                app.tab = (app.tab + 1) % 5;
                 app.scroll = 0.0;
             }
             if frame == 2 {

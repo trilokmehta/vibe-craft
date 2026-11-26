@@ -26,8 +26,9 @@ pub fn shortcut_for(label: &str) -> Option<&'static str> {
     match label {
         "Now Playing" | "Now" => Some("1"),
         "Smart DJ" => Some("2"),
-        "Queue" => Some("3"),
-        "Library" => Some("4"),
+        "Decks" => Some("3"),
+        "Queue" => Some("4"),
+        "Library" => Some("5"),
         "Like" | "Liked" => Some("L"),
         "AUTO DJ" | "DJ off" | "AUTO DJ  ON" | "AUTO DJ  OFF" => Some("D"),
         _ => None,
@@ -648,9 +649,9 @@ impl App {
             draw_circle(bx + 14.0, 34.0, 4.0, Color::new(accent.r, accent.g, accent.b, 0.4 + 0.6 * pulse));
             draw_text(&msg, bx + 24.0, 39.0, 17.0, WHITE);
         }
-        let names: [&str; 4] = if narrow { ["Now", "DJ", "Queue", "Library"] } else { ["Now Playing", "Smart DJ", "Queue", "Library"] };
+        let names: [&str; 5] = if narrow { ["Now", "DJ", "Decks", "Queue", "Library"] } else { ["Now Playing", "Smart DJ", "Decks", "Queue", "Library"] };
         let mut x = w - 20.0;
-        for i in (0..4).rev() {
+        for i in (0..5).rev() {
             let wd = tw(names[i], 20.0) + 30.0;
             x -= wd;
             if self.button(x, 16.0, wd - 6.0, 36.0, names[i], self.tab == i, accent) {
@@ -888,7 +889,13 @@ impl App {
         let (zx, zy, zw, zh) = self.zoom_rect;
         let over_zoom = self.tab == 1 && self.zoom && zw > 0.0 && self.mx >= zx && self.mx <= zx + zw && self.my >= zy && self.my <= zy + zh;
         self.zoom_rect = (0.0, 0.0, 0.0, 0.0);
-        if wy != 0.0 && over_zoom {
+        let (vx, vy, vw, vh) = self.wave_rect;
+        let over_wave = self.tab == 2 && vw > 0.0 && self.mx >= vx && self.mx <= vx + vw && self.my >= vy && self.my <= vy + vh;
+        self.wave_rect = (0.0, 0.0, 0.0, 0.0);
+        if wy != 0.0 && over_wave {
+            // Wheel over the Decks waves: up zooms in, down zooms out.
+            self.wave_secs = (self.wave_secs * if wy > 0.0 { 0.8 } else { 1.25 }).clamp(1.0, 60.0);
+        } else if wy != 0.0 && over_zoom {
             // Wheel over the beat zoom: zoom in (up) or out (down).
             self.zoom_secs = (self.zoom_secs * if wy > 0.0 { 0.8 } else { 1.25 }).clamp(0.5, 32.0);
         } else if wy != 0.0 && !under_menu {
@@ -899,14 +906,15 @@ impl App {
         match self.tab {
             0 => self.now_playing(w),
             1 => self.smart_dj(w),
-            2 => self.queue_screen(w),
+            2 => self.decks_screen(w),
+            3 => self.queue_screen(w),
             _ => self.library_screen(w),
         }
         self.click = real_click;
         self.down = real_down;
         self.header_footer(w, h);
         self.draw_tip(w);
-        if self.tab == 3 && self.search_focus {
+        if self.tab == 4 && self.search_focus {
             return;
         }
         if is_key_pressed(KeyCode::Space) {
@@ -926,7 +934,7 @@ impl App {
             self.set.auto = !self.set.auto;
             self.dirty = true;
         }
-        for (i, k) in [KeyCode::Key1, KeyCode::Key2, KeyCode::Key3, KeyCode::Key4].iter().enumerate() {
+        for (i, k) in [KeyCode::Key1, KeyCode::Key2, KeyCode::Key3, KeyCode::Key4, KeyCode::Key5].iter().enumerate() {
             if is_key_pressed(*k) {
                 self.tab = i;
                 self.scroll = 0.0;
